@@ -44,7 +44,7 @@ except Exception:
 
 if not api_key:
     # 內建本機專用備用金鑰，免手動輸入
-    api_key = "AQ.Ab8RN6JYf-iaPJ_Ta8FocF8iIrB6b9RoeXvDkB5Rt2Ml1mqCng"
+    api_key = "AQ.Ab8RN6IIZIJtyv09DngH_BnTiEG1HhsldAVXr_d07K31bykFTw"
 
 client = genai.Client(api_key=api_key)
 
