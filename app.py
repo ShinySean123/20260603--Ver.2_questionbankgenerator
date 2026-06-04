@@ -10,9 +10,6 @@ from openpyxl import load_workbook
 from openpyxl.styles import Alignment, Font, Border, Side
 from openpyxl.utils import get_column_letter
 
-# PDF 文本提取工具
-from pypdf import PdfReader
-
 # Word 處理相關
 from docx import Document
 from docx.shared import Pt, Cm, RGBColor
@@ -31,7 +28,7 @@ except ImportError:
 st.set_page_config(page_title="AI 雲端全自動題庫系統", page_icon="🧠", layout="centered")
 
 st.title("🧠 AI 雲端全自動題庫生成系統")
-st.markdown("內建【本地 PDF 文字解析引擎】，徹底解決 401 上傳憑證報錯！")
+st.markdown("支援【自訂起始題號】與【多檔融合】！自動避開 GitHub 歷史重複題目。")
 
 if not HAS_GEMINI:
     st.error("❌ 缺失 google-genai 套件，請在 requirements.txt 中新增。")
@@ -46,15 +43,18 @@ except Exception:
     pass
 
 if not api_key:
+    # 內建本機專用備用金鑰，免手動輸入
     api_key = "AQ.Ab8RN6JYf-iaPJ_Ta8FocF8iIrB6b9RoeXvDkB5Rt2Ml1mqCng"
 
 client = genai.Client(api_key=api_key)
 
 # ==================== 2. 🗂️ GitHub API 自動資料夾掃描 ====================
+# 📝 已經為你更新為正確的 GitHub 資訊！
 GITHUB_USER = "ShinySean123"
 GITHUB_REPO = "20260603--Ver.2_questionbankgenerator"
 GITHUB_FOLDER = "history_db"          
 
+# 對專案名稱與資料夾進行安全的網址編碼，防止特殊符號導致連線失敗
 encoded_user = urllib.parse.quote(GITHUB_USER)
 encoded_repo = urllib.parse.quote(GITHUB_REPO)
 encoded_folder = urllib.parse.quote(GITHUB_FOLDER)
@@ -64,6 +64,7 @@ file_options = ["❌ 不使用歷史資料（全新出題）"]
 all_excel_files = [] 
 
 try:
+    # 建立一個模擬瀏覽器的 Request，防止被 GitHub API 拒絕
     req = urllib.request.Request(github_api_url, headers={'User-Agent': 'Mozilla/5.0'})
     with urllib.request.urlopen(req) as response:
         api_data = json.loads(response.read().decode())
@@ -74,13 +75,20 @@ try:
         file_options.append("💥 比對資料夾內【所有檔案】（全面防重複）")
         for f in all_excel_files:
             file_options.append(f)
-except Exception:
+except Exception as e:
+    # 後台靜態調試輸出
     pass
 
 history_titles = []
 with st.sidebar:
     st.header("⚙️ 雲端資料庫狀態")
-    st.markdown(f"**帳號:** `{GITHUB_USER}`\n**專案:** `{GITHUB_REPO}`")
+    st.markdown(f"**帳號:** `{GITHUB_USER}`")
+    st.markdown(f"**專案:** `{GITHUB_REPO}`")
+    st.markdown(f"**資料夾:** `{GITHUB_FOLDER}/`")
+    
+    if len(file_options) == 1:
+        st.error("⚠️ 無法讀取雲端題庫！請檢查 GitHub 上是否已建立 `history_db` 資料夾，且裡面至少有一個 .xlsx 檔案。")
+    
     selected_mode = st.selectbox("請選擇本次防重複比對模式：", file_options)
 
 def fetch_excel_titles(file_name):
@@ -99,7 +107,7 @@ if "【所有檔案】" in selected_mode:
     with st.sidebar:
         with st.spinner("正在打包讀取所有雲端題庫..."):
             for f in all_excel_files: history_titles.extend(fetch_excel_titles(f))
-            if history_titles: st.success(f"🔥 已鎖定全資料夾共 {len(history_titles)} 題歷史紀錄！")
+            if history_titles: st.success(f"🔥 終極防護啟動！已鎖定全資料夾共 {len(history_titles)} 題歷史紀錄！")
 elif selected_mode != "❌ 不使用歷史資料（全新出題）":
     with st.sidebar:
         with st.spinner(f"正在讀取 {selected_mode}..."):
@@ -113,16 +121,17 @@ if uploaded_pdfs:
     st.subheader("📝 Step 2: 設定出題參數")
     col1, col2, col3 = st.columns(3)
     with col1:
-        page_range = st.text_input("想根據哪幾頁出題？(可填特定單一頁數如 64，或填『整份』)", "整份")
+        page_range = st.text_input("想根據哪幾頁出題？(填特定頁數，或填『整份』)", "整份")
     with col2:
         topic_name = st.text_input("章節/主題名稱", "醫學核心領域綜論")
     with col3:
         num_questions = st.number_input("預計生成題數", min_value=1, max_value=50, value=10)
 
+    # 🌟 [全新功能] 讓使用者自訂起始題號
     st.markdown("---")
     col_num, col_blank = st.columns([1, 2])
     with col_num:
-        start_q_num = st.number_input("🔢 設定此份題庫的「起始題號」", min_value=1, max_value=999, value=1, step=1)
+        start_q_num = st.number_input("🔢 設定此份題庫的「起始題號」", min_value=1, max_value=999, value=1, step=1, help="例如輸入 51，產出的題目編號就會從 51, 52, 53... 開始往下排。")
     st.markdown("---")
 
     col4, col5 = st.columns(2)
@@ -137,56 +146,25 @@ if uploaded_pdfs:
     # ==================== 4. AI 出題與排版核心 ====================
     if st.button("⚡ 開始全自動多講義融合出題 ⚡", use_container_width=True):
         try:
-            with st.spinner("📖 正在利用本地引擎高速解析 PDF 文本內容..."):
+            with st.spinner(f"🧠 AI 正在同時研讀您上傳的 {len(uploaded_pdfs)} 份講義並精心設計題目中..."):
                 
-                # 建立用來存放所有講義內容的文字容器
-                all_pdf_combined_text = ""
-                
+                gemini_file_objects = []
                 for pdf_file in uploaded_pdfs:
-                    reader = PdfReader(pdf_file)
-                    total_pages = len(reader.pages)
-                    
-                    # 智慧解析頁數：判斷是要抓單頁還是整份
-                    target_pages = []
-                    digit_match = re.search(r'\d+', page_range)
-                    
-                    if digit_match and "整份" not in page_range and "全部" not in page_range:
-                        # 使用者指定了特定頁數
-                        p_num = int(digit_match.group())
-                        if 1 <= p_num <= total_pages:
-                            target_pages = [p_num]
-                        else:
-                            st.warning(f"⚠️ 檔案 {pdf_file.name} 總共只有 {total_pages} 頁，您輸入的第 {p_num} 頁超出範圍，自動切換為讀取整份。")
-                            target_pages = list(range(1, total_pages + 1))
-                    else:
-                        # 讀取整份
-                        target_pages = list(range(1, total_pages + 1))
-                    
-                    # 撈取指定頁面的文字
-                    for p_idx in target_pages:
-                        page_text = reader.pages[p_idx - 1].extract_text()
-                        if page_text:
-                            all_pdf_combined_text += f"\n--- 來源檔案: {pdf_file.name} | 頁碼: 第 {p_idx} 頁 ---\n"
-                            all_pdf_combined_text += page_text
+                    pdf_bytes = pdf_file.read()
+                    gemini_file = client.files.upload(
+                        file=io.BytesIO(pdf_bytes),
+                        config=types.UploadFileConfig(mime_type="application/pdf")
+                    )
+                    gemini_file_objects.append(gemini_file)
 
-                if not all_pdf_combined_text.strip():
-                    st.error("❌ 無法從您上傳的 PDF 中提取出任何文字（可能是掃描圖片檔），請更換檔案後再試。")
-                    st.stop()
+                range_instruction = f"精準鎖定這些 PDF 檔案中的【{page_range}】" if "整份" not in page_range and "全部" not in page_range else "「通盤掃描並融合這幾份 PDF 檔案」的完整內容，宏觀地在不同的講義、章節與核心觀念中平均分佈提取核心重點"
 
-            with st.spinner("🧠 文字提取完畢！Gemini AI 正在過濾歷史題庫並精心設計題目中..."):
-                
                 history_block = ""
                 if history_titles:
                     history_block = "⚠️ 絕對禁止重複、改寫或高度雷同以下這些已經出過的舊題目：\n" + "\n".join([f"- {t}" for t in history_titles])
 
                 prompt = f"""
-                你現在是一位資深的醫學與生物科學教授。請詳細研讀下方由使用者提供之 PDF 講義的真實文本內容：
-                
-                【原始講義文本內容開始】
-                {all_pdf_combined_text}
-                【原始講義文本內容結束】
-                
-                請圍繞核心主題【{topic_name}】，並針對上述講義內容設計出 {num_questions} 題五選一的單選題。
+                你現在是一位資深的醫學與生物科學教授。請根據使用者上傳的這多份 PDF 檔案，{range_instruction}，並圍繞核心主題【{topic_name}】出 {num_questions} 題五選一的單選題。
                 
                 {history_block}
                 
@@ -196,17 +174,22 @@ if uploaded_pdfs:
                 
                 2. 只有【針對各選項之詳解】與【出處】欄位必須用繁體中文詳細解釋。詳解必須非常詳細，逐行解釋為什麼該選項正確或錯誤，換行請用 \\n 符號。
                 3. 【題目內容】與【選項A】~【選項E】還有【正確答案】請使用「全英文 (Full English)」。
-                4. 【出處】格式固定為：「對應之原始PDF真實檔名」第 XX 頁。請根據文本上方標註的來源檔案與頁碼，精準指出這題到底是出自哪一個檔案的第幾頁！
+                4. 【出處】格式固定為：「該題目對應之原始PDF完整真實檔名」第 XX 頁。因為本次有多份講義，你必須精準指出這題到底是出自哪一個檔案的第幾頁！
                 5. 正確答案（A, B, C, D, E）的總體數量分布要稍微平均一些，但也不要太過絕對的平均。
 
                 請直接輸出完整的 JSON 陣列，不要包含 ```json 等任何 Markdown 外包裝字串。
                 """
 
-                # 呼叫最新的官方模型，直接用一般的 generate_content 傳遞純文字，完美繞過 401 憑證限制！
+                contents_payload = []
+                for g_file in gemini_file_objects: contents_payload.append(g_file)
+                contents_payload.append(prompt)
+
                 response = client.models.generate_content(
                     model='gemini-2.5-flash',
-                    contents=prompt,
+                    contents=contents_payload,
                 )
+
+                for g_file in gemini_file_objects: client.files.delete(name=g_file.name)
 
                 clean_response = response.text.strip()
                 if clean_response.startswith("```json"):
@@ -217,11 +200,14 @@ if uploaded_pdfs:
                 raw_questions = json.loads(clean_response)
 
             with st.spinner("🎨 題目設計完成！正在套用高質感格式排版引擎..."):
+                # --- 5. 資料整理 (加入自訂起始題號邏輯) ---
                 processed_rows = []
                 opt_labels = ['A', 'B', 'C', 'D', 'E']
 
                 for idx, q in enumerate(raw_questions):
+                    # 關鍵：將原本的 idx + 1 改成 start_q_num + idx
                     current_q_num = int(start_q_num) + idx
+                    
                     row_dict = {'題號': current_q_num, '題目內容': str(q.get('題目內容', '')).strip()}
                     for lbl in opt_labels:
                         row_dict[f'選項{lbl}'] = str(q.get(f'選項{lbl}', '')).strip()
@@ -232,7 +218,7 @@ if uploaded_pdfs:
                     row_dict['出處'] = str(q.get('出處', '')).strip()
                     processed_rows.append(row_dict)
 
-                # ==================== 5. 產出 Excel ====================
+                # ==================== 6. 產出 Excel ====================
                 excel_out = io.BytesIO()
                 pd.DataFrame(processed_rows).to_excel(excel_out, index=False)
                 excel_out.seek(0)
@@ -262,7 +248,7 @@ if uploaded_pdfs:
                 final_excel_bytes = io.BytesIO()
                 wb.save(final_excel_bytes)
 
-                # ==================== 6. 產出 Word ====================
+                # ==================== 7. 產出 Word ====================
                 doc = Document()
                 sec = doc.sections[0]
                 sec.top_margin = sec.bottom_margin = sec.left_margin = sec.right_margin = Cm(1.27)
@@ -317,7 +303,7 @@ if uploaded_pdfs:
                 final_word_bytes = io.BytesIO()
                 doc.save(final_word_bytes)
 
-                # 將產出的資料存入暫存狀態，防止刷新消失
+                # 將產出的二進位資料存入暫存，防止點擊下載按鈕時消失
                 st.session_state["generated_excel"] = final_excel_bytes.getvalue()
                 st.session_state["generated_word"] = final_word_bytes.getvalue()
                 st.session_state["saved_excel_filename"] = excel_filename
