@@ -44,7 +44,7 @@ if env_key and env_key.strip() == BAD_OLD_KEY:
     env_key = ""
 
 # 預設使用你在程式碼裡寫死的代鑰
-hardcoded_key = "AQ.Ab8RN6JggM7mYCGiTCKTS502tTBx9lIyClm1-I8ijL7pA3sFow"
+hardcoded_key = "AQ.Ab8RN6IQXEwIP4B08KDv9FvC_KtFY1ARYKB_4IpIl-3pncwSCA"
 default_key = env_key if env_key else hardcoded_key
 
 with st.expander("🔑 API 金鑰後台診斷面板", expanded=True):
