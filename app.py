@@ -6,7 +6,8 @@ import io
 import json
 import urllib.request
 import urllib.parse
-import requests  # 🌟 [核心新增] 用來取代 Google SDK 的直連套件
+import requests
+import base64  # 🌟 [核心新增] 用來把 PDF 轉成純文字夾帶的套件
 from openpyxl import load_workbook
 from openpyxl.styles import Alignment, Font, Border, Side
 from openpyxl.utils import get_column_letter
@@ -20,8 +21,8 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 # 網頁配置
 st.set_page_config(page_title="AI 雲端講義題庫系統", page_icon="🧠", layout="centered")
 
-st.title("🧠 AI 雲端全自動題庫生成系統 (SDK 免疫版)")
-st.markdown("已啟動底層 HTTP 直連模式，徹底免疫伺服器憑證綁架 Bug！")
+st.title("🧠 AI 雲端全自動題庫生成系統 (真・終極通關版)")
+st.markdown("已啟動底層 Base64 夾帶模式，徹底無視所有 Google 檔案上傳權限審查！")
 
 # ==================== 1. 🔑 API 金鑰設定面板 ====================
 env_key = ""
@@ -39,28 +40,23 @@ if not api_key:
     st.warning("⚠️ 請貼入您在 Google AI Studio 申請的 `AIzaSy` 金鑰。")
     st.stop()
 
-# ==================== 直連 Google API 的底層函數 ====================
-def upload_pdf_direct(pdf_bytes, api_key):
-    """直接呼叫 Google File API 上傳檔案，避開 SDK 綁架"""
-    url = f"https://generativelanguage.googleapis.com/upload/v1beta/files?key={api_key}"
-    headers = {
-        "X-Goog-Upload-Protocol": "raw",
-        "X-Goog-Upload-Command": "upload",
-        "X-Goog-Upload-Header-Content-Type": "application/pdf",
-        "Content-Type": "application/pdf"
-    }
-    resp = requests.post(url, headers=headers, data=pdf_bytes)
-    if resp.status_code != 200:
-        raise Exception(f"上傳拒絕 ({resp.status_code}): {resp.text}")
-    return resp.json()["file"]["uri"]
-
-def generate_content_direct(file_uris, prompt, api_key):
-    """直接呼叫 Gemini 2.5 Flash 生成文字，避開 SDK 綁架"""
+# ==================== 🌟 [核心重寫] 真正的直連夾帶函數 ====================
+def generate_content_direct(pdf_bytes_list, prompt, api_key):
+    """直接呼叫 Gemini 2.5 Flash 生成文字，完全不使用上傳 API"""
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
     
     parts = []
-    for uri in file_uris:
-        parts.append({"fileData": {"mimeType": "application/pdf", "fileUri": uri}})
+    # 將每一份 PDF 轉成 Base64 格式，當成「內嵌資料」直接塞進 Payload
+    for pdf_bytes in pdf_bytes_list:
+        b64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
+        parts.append({
+            "inlineData": {
+                "mimeType": "application/pdf",
+                "data": b64_pdf
+            }
+        })
+    
+    # 把我們的文字 Prompt 也塞進去
     parts.append({"text": prompt})
 
     payload = {"contents": [{"parts": parts}]}
@@ -69,6 +65,7 @@ def generate_content_direct(file_uris, prompt, api_key):
     resp = requests.post(url, headers=headers, json=payload)
     if resp.status_code != 200:
         raise Exception(f"出題拒絕 ({resp.status_code}): {resp.text}")
+    
     return resp.json()['candidates'][0]['content']['parts'][0]['text']
 
 # ==================== 2. 🗂️ GitHub 自動資料夾雙模掃描 ====================
@@ -207,26 +204,23 @@ if total_pdf_count > 0:
     exam_title = str(exam_title_input) if exam_title_input else "測驗題庫"
     excel_filename = str(excel_filename_input) if excel_filename_input else "精修題庫"
 
-    # ==================== 4. AI 出題與排版核心 (純 HTTP 直連版) ====================
+    # ==================== 4. AI 出題與排版核心 ====================
     if st.button("⚡ 開始全自動雙模融合出題 ⚡", use_container_width=True):
         try:
-            gemini_file_uris = []
+            pdf_bytes_list = []
             
-            with st.spinner("🧠 正在繞過系統限制，直連上傳講義中..."):
+            with st.spinner("🧠 正在抓取與解析雲端/本地講義..."):
                 # 處理本地上傳的 PDF
                 for pdf_file in uploaded_pdfs:
-                    pdf_bytes = pdf_file.read()
-                    uri = upload_pdf_direct(pdf_bytes, api_key)
-                    gemini_file_uris.append(uri)
+                    pdf_bytes_list.append(pdf_file.read())
                 
                 # 處理雲端講義
                 for cloud_pdf_name in selected_cloud_pdfs:
                     c_bytes = fetch_cloud_pdf_bytes(cloud_pdf_name)
                     if c_bytes:
-                        uri = upload_pdf_direct(c_bytes, api_key)
-                        gemini_file_uris.append(uri)
+                        pdf_bytes_list.append(c_bytes)
 
-            with st.spinner("🧠 講義上傳成功！AI 正在通盤研讀並精心設計題目中... 請稍候"):
+            with st.spinner("🧠 講義加載完成！AI 正在通盤研讀並精心設計題目中... 請稍候"):
                 range_instruction = f"精準鎖定這些 PDF 檔案中的【{page_range}】" if "整份" not in page_range and "全部" not in page_range else "「通盤掃描並融合這幾份 PDF 檔案」的完整內容，宏觀地在不同的講義、章節與核心觀念中平均分佈提取核心重點"
 
                 history_block = ""
@@ -234,7 +228,7 @@ if total_pdf_count > 0:
                     history_block = "⚠️ 絕對禁止重複、改寫或高度雷同以下這些已經出過的舊題目：\n" + "\n".join([f"- {t}" for t in history_titles])
 
                 prompt = f"""
-                你現在是一位資深的醫學與生物科學教授。請根據使用者提供的這多份 PDF 檔案，{range_instruction}，並圍繞核心主題【{topic_name}】出 {num_questions} 題五選一的單選題。
+                你現在是一位資深的醫學與生物科學教授。請根據使用者夾帶的這多份 PDF 檔案，{range_instruction}，並圍繞核心主題【{topic_name}】出 {num_questions} 題五選一的單選題。
                 
                 {history_block}
                 
@@ -250,8 +244,8 @@ if total_pdf_count > 0:
                 請直接輸出完整的 JSON 陣列，不要包含 ```json 等任何 Markdown 外包裝字串。
                 """
 
-                # 🚀 透過 HTTP 直連呼叫 Gemini，徹底瓦解 401 錯誤
-                clean_response = generate_content_direct(gemini_file_uris, prompt, api_key)
+                # 🚀 透過 HTTP 直連呼叫 Gemini，將 PDF 轉成純文字編碼夾帶過去
+                clean_response = generate_content_direct(pdf_bytes_list, prompt, api_key)
                 
                 if clean_response.startswith("```json"):
                     clean_response = clean_response.split("```json")[1].split("```")[0].strip()
