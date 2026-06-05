@@ -1,5 +1,7 @@
+Plaintext
 streamlit
 pandas
 openpyxl
 python-docx
 google-generativeai
+PyPDF2
