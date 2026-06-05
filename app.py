@@ -4,9 +4,9 @@ import re
 import math
 import io
 import json
-import os
 import urllib.request
 import urllib.parse
+import requests  # 🌟 [核心新增] 用來取代 Google SDK 的直連套件
 from openpyxl import load_workbook
 from openpyxl.styles import Alignment, Font, Border, Side
 from openpyxl.utils import get_column_letter
@@ -17,53 +17,59 @@ from docx.shared import Pt, Cm, RGBColor
 from docx.oxml.ns import qn
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 
-# Google Gemini API 相關 (經典穩定版 SDK)
-try:
-    import google.generativeai as genai
-    HAS_GEMINI = True
-except ImportError:
-    HAS_GEMINI = False
-
 # 網頁配置
 st.set_page_config(page_title="AI 雲端講義題庫系統", page_icon="🧠", layout="centered")
 
-st.title("🧠 AI 雲端全自動題庫生成系統 (最終驅魔版)")
+st.title("🧠 AI 雲端全自動題庫生成系統 (SDK 免疫版)")
+st.markdown("已啟動底層 HTTP 直連模式，徹底免疫伺服器憑證綁架 Bug！")
 
-if not HAS_GEMINI:
-    st.error("❌ 缺失 google-generativeai 套件，請確認 requirements.txt 已更新。")
-    st.stop()
-
-# ==================== 1. 🔍 系統設定與強制驅魔 ====================
-
-# 🚨 【終極驅魔儀式】：強制清除 Streamlit 主機底層的隱形毒瘤憑證
-for env_var in ['GOOGLE_APPLICATION_CREDENTIALS', 'GOOGLE_API_KEY', 'GEMINI_API_KEY']:
-    if env_var in os.environ:
-        del os.environ[env_var]
-
+# ==================== 1. 🔑 API 金鑰設定面板 ====================
 env_key = ""
 try:
     if "GEMINI_API_KEY" in st.secrets: env_key = st.secrets["GEMINI_API_KEY"]
 except Exception: pass
 
-hardcoded_key = "AQ.Ab8RN6IQXEwIP4B08KDv9FvC_KtFY1ARYKB_4IpIl-3pncwSCA"
-default_key = env_key if env_key else hardcoded_key
-
 with st.expander("🔑 API 金鑰設定面板", expanded=False):
-    st.markdown("如果遇到權限錯誤，請直接在下方貼上 API Key 強制覆寫。")
-    user_live_key = st.text_input("💡 請輸入 API Key：", 
-                                  value=default_key if "AIzaSy" in default_key and "貼在這裡" not in default_key else "",
-                                  type="password")
+    st.markdown("請輸入你的 `AIzaSy` 開頭全新個人金鑰：")
+    user_live_key = st.text_input("💡 API Key：", value=env_key if env_key else "", type="password")
 
-api_key = user_live_key.strip() if user_live_key else default_key
+api_key = user_live_key.strip() if user_live_key else env_key
 
-if not api_key or "貼在這裡" in api_key:
+if not api_key:
     st.warning("⚠️ 請貼入您在 Google AI Studio 申請的 `AIzaSy` 金鑰。")
     st.stop()
 
-# 🚨 核心切換：強制綁定經典版 SDK，並指定 transport="rest" (徹底避開 gRPC 憑證綁架)
-genai.configure(api_key=api_key, transport="rest")
-# 初始化 2.5 模型
-model = genai.GenerativeModel('gemini-2.5-flash')
+# ==================== 直連 Google API 的底層函數 ====================
+def upload_pdf_direct(pdf_bytes, api_key):
+    """直接呼叫 Google File API 上傳檔案，避開 SDK 綁架"""
+    url = f"https://generativelanguage.googleapis.com/upload/v1beta/files?key={api_key}"
+    headers = {
+        "X-Goog-Upload-Protocol": "raw",
+        "X-Goog-Upload-Command": "upload",
+        "X-Goog-Upload-Header-Content-Type": "application/pdf",
+        "Content-Type": "application/pdf"
+    }
+    resp = requests.post(url, headers=headers, data=pdf_bytes)
+    if resp.status_code != 200:
+        raise Exception(f"上傳拒絕 ({resp.status_code}): {resp.text}")
+    return resp.json()["file"]["uri"]
+
+def generate_content_direct(file_uris, prompt, api_key):
+    """直接呼叫 Gemini 2.5 Flash 生成文字，避開 SDK 綁架"""
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+    
+    parts = []
+    for uri in file_uris:
+        parts.append({"fileData": {"mimeType": "application/pdf", "fileUri": uri}})
+    parts.append({"text": prompt})
+
+    payload = {"contents": [{"parts": parts}]}
+    headers = {"Content-Type": "application/json"}
+    
+    resp = requests.post(url, headers=headers, json=payload)
+    if resp.status_code != 200:
+        raise Exception(f"出題拒絕 ({resp.status_code}): {resp.text}")
+    return resp.json()['candidates'][0]['content']['parts'][0]['text']
 
 # ==================== 2. 🗂️ GitHub 自動資料夾雙模掃描 ====================
 GITHUB_USER = "ShinySean123"
@@ -129,10 +135,10 @@ with st.sidebar:
     st.markdown("---")
     st.header("📚 雲端講義書櫃")
     if cloud_pdf_files:
-        st.success(f"🟢 成功解鎖！偵測到雲端有 {len(cloud_pdf_files)} 份 PDF 講義")
+        st.success(f"🟢 偵測到雲端有 {len(cloud_pdf_files)} 份 PDF 講義")
         selected_cloud_pdfs = st.multiselect("請勾選本次想連動出題的雲端講義：", cloud_pdf_files)
     else:
-        st.info(f"ℹ️ 目前雲端 `{GITHUB_FOLDER_PDF}/` 資料夾內未偵測到 PDF。")
+        st.info(f"ℹ️ 目前雲端未偵測到 PDF。")
         selected_cloud_pdfs = []
 
 # ==================== 讀取雲端二進位流函數 ====================
@@ -180,7 +186,7 @@ if total_pdf_count > 0:
     st.subheader("📝 Step 2: 設定出題參數")
     col1, col2, col3 = st.columns(3)
     with col1:
-        page_range = st.text_input("想根據哪幾頁出題？(填特定頁數，或填『整份』)", "整份")
+        page_range = st.text_input("想根據哪幾頁出題？", "整份")
     with col2:
         topic_name = st.text_input("章節/主題名稱", "醫學綜合領域測驗")
     with col3:
@@ -189,7 +195,7 @@ if total_pdf_count > 0:
     st.markdown("---")
     col_num, col_blank = st.columns([1, 2])
     with col_num:
-        start_q_num = st.number_input("🔢 設定此份題庫的「起始題號」", min_value=1, max_value=999, value=1, step=1)
+        start_q_num = st.number_input("🔢 設定「起始題號」", min_value=1, max_value=999, value=1, step=1)
     st.markdown("---")
 
     col4, col5 = st.columns(2)
@@ -201,30 +207,26 @@ if total_pdf_count > 0:
     exam_title = str(exam_title_input) if exam_title_input else "測驗題庫"
     excel_filename = str(excel_filename_input) if excel_filename_input else "精修題庫"
 
-    # ==================== 4. AI 出題與排版核心 (經典穩定版) ====================
+    # ==================== 4. AI 出題與排版核心 (純 HTTP 直連版) ====================
     if st.button("⚡ 開始全自動雙模融合出題 ⚡", use_container_width=True):
         try:
-            with st.spinner("🧠 正在準備與同步雲端/本地講義檔案..."):
-                contents_payload = []
-                
+            gemini_file_uris = []
+            
+            with st.spinner("🧠 正在繞過系統限制，直連上傳講義中..."):
                 # 處理本地上傳的 PDF
                 for pdf_file in uploaded_pdfs:
                     pdf_bytes = pdf_file.read()
-                    contents_payload.append({
-                        "mime_type": "application/pdf",
-                        "data": pdf_bytes
-                    })
+                    uri = upload_pdf_direct(pdf_bytes, api_key)
+                    gemini_file_uris.append(uri)
                 
                 # 處理雲端講義
                 for cloud_pdf_name in selected_cloud_pdfs:
                     c_bytes = fetch_cloud_pdf_bytes(cloud_pdf_name)
                     if c_bytes:
-                        contents_payload.append({
-                            "mime_type": "application/pdf",
-                            "data": c_bytes
-                        })
+                        uri = upload_pdf_direct(c_bytes, api_key)
+                        gemini_file_uris.append(uri)
 
-            with st.spinner("🧠 AI 正在通盤研讀所有講義並為您精心設計題目中... 請稍候"):
+            with st.spinner("🧠 講義上傳成功！AI 正在通盤研讀並精心設計題目中... 請稍候"):
                 range_instruction = f"精準鎖定這些 PDF 檔案中的【{page_range}】" if "整份" not in page_range and "全部" not in page_range else "「通盤掃描並融合這幾份 PDF 檔案」的完整內容，宏觀地在不同的講義、章節與核心觀念中平均分佈提取核心重點"
 
                 history_block = ""
@@ -232,7 +234,7 @@ if total_pdf_count > 0:
                     history_block = "⚠️ 絕對禁止重複、改寫或高度雷同以下這些已經出過的舊題目：\n" + "\n".join([f"- {t}" for t in history_titles])
 
                 prompt = f"""
-                你現在是一位資深的醫學與生物科學教授。請根據使用者夾帶的這多份 PDF 檔案，{range_instruction}，並圍繞核心主題【{topic_name}】出 {num_questions} 題五選一的單選題。
+                你現在是一位資深的醫學與生物科學教授。請根據使用者提供的這多份 PDF 檔案，{range_instruction}，並圍繞核心主題【{topic_name}】出 {num_questions} 題五選一的單選題。
                 
                 {history_block}
                 
@@ -248,13 +250,9 @@ if total_pdf_count > 0:
                 請直接輸出完整的 JSON 陣列，不要包含 ```json 等任何 Markdown 外包裝字串。
                 """
 
-                # 把 Prompt 加進去
-                contents_payload.append(prompt)
-
-                # 發送請求（經典版引擎 + REST 傳輸）
-                response = model.generate_content(contents_payload)
-
-                clean_response = response.text.strip()
+                # 🚀 透過 HTTP 直連呼叫 Gemini，徹底瓦解 401 錯誤
+                clean_response = generate_content_direct(gemini_file_uris, prompt, api_key)
+                
                 if clean_response.startswith("```json"):
                     clean_response = clean_response.split("```json")[1].split("```")[0].strip()
                 elif clean_response.startswith("```"):
