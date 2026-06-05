@@ -41,7 +41,7 @@ except Exception:
     pass
 
 # 預設使用你在程式碼裡寫死的代鑰
-hardcoded_key = "AIzaSy你的全新正式萬用API_KEY_貼在這裡"
+hardcoded_key = "AQ.Ab8RN6IQXEwIP4B08KDv9FvC_KtFY1ARYKB_4IpIl-3pncwSCA"
 default_key = env_key if env_key else hardcoded_key
 
 with st.expander("🔑 API 金鑰設定面板", expanded=False):
