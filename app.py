@@ -56,7 +56,7 @@ if not api_key:
     # 🎯 請把下方這串文字，改成你自己在 AI Studio 申請、以 AIzaSy 開頭的正式金鑰！
     api_key = "AQ.Ab8RN6JWYjwFlTIz8zAuKjCjjbLZfULtRmCGmEJjh5kv_YpiDw"
 
-if not api_key or api_key == "AQ.Ab8RN6JWYjwFlTIz8zAuKjCjjbLZfULtRmCGmEJjh5kv_YpiDw":
+if not api_key or api_key == "AIzaSy你的全新正式萬用API_KEY_貼在這裡":
     st.warning("⚠️ 請先在 `app.py` 第 59 行換上您在 Google AI Studio 申請的全新 `AIzaSy` 正式金鑰。")
     st.stop()
 
