@@ -2,5 +2,4 @@ streamlit
 pandas
 openpyxl
 python-docx
-google-genai
-pypdf
+google-generativeai
