@@ -44,7 +44,7 @@ except Exception:
 
 if not api_key:
     # 內建正式金鑰備用通道（已為您串接好新正式通道）
-    api_key = "AQ.Ab8RN6JYf-iaPJ_Ta8FocF8iIrB6b9RoeXvDkB5Rt2Ml1mqCng"
+    api_key = "AQ.Ab8RN6JggM7mYCGiTCKTS502tTBx9lIyClm1-I8ijL7pA3sFow"
 
 client = genai.Client(api_key=api_key)
 
