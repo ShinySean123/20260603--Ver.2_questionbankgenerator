@@ -4,9 +4,9 @@ import re
 import math
 import io
 import json
+import os
 import urllib.request
 import urllib.parse
-import PyPDF2  # <--- 新增：本地 PDF 解析神器
 from openpyxl import load_workbook
 from openpyxl.styles import Alignment, Font, Border, Side
 from openpyxl.utils import get_column_letter
@@ -17,7 +17,7 @@ from docx.shared import Pt, Cm, RGBColor
 from docx.oxml.ns import qn
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 
-# Google Gemini API 相關 (經典穩定版)
+# Google Gemini API 相關 (經典穩定版 SDK)
 try:
     import google.generativeai as genai
     HAS_GEMINI = True
@@ -27,20 +27,23 @@ except ImportError:
 # 網頁配置
 st.set_page_config(page_title="AI 雲端講義題庫系統", page_icon="🧠", layout="centered")
 
-st.title("🧠 AI 雲端全自動題庫生成系統 (本地榨汁通關版)")
-st.markdown("採用無敵文字萃取技術，完美繞過 Google 機構帳號檔案上傳限制！")
+st.title("🧠 AI 雲端全自動題庫生成系統 (最終驅魔版)")
 
 if not HAS_GEMINI:
     st.error("❌ 缺失 google-generativeai 套件，請確認 requirements.txt 已更新。")
     st.stop()
 
-# ==================== 1. 🔍 系統設定 ====================
+# ==================== 1. 🔍 系統設定與強制驅魔 ====================
+
+# 🚨 【終極驅魔儀式】：強制清除 Streamlit 主機底層的隱形毒瘤憑證
+for env_var in ['GOOGLE_APPLICATION_CREDENTIALS', 'GOOGLE_API_KEY', 'GEMINI_API_KEY']:
+    if env_var in os.environ:
+        del os.environ[env_var]
+
 env_key = ""
 try:
-    if "GEMINI_API_KEY" in st.secrets:
-        env_key = st.secrets["GEMINI_API_KEY"]
-except Exception:
-    pass
+    if "GEMINI_API_KEY" in st.secrets: env_key = st.secrets["GEMINI_API_KEY"]
+except Exception: pass
 
 hardcoded_key = "AQ.Ab8RN6IQXEwIP4B08KDv9FvC_KtFY1ARYKB_4IpIl-3pncwSCA"
 default_key = env_key if env_key else hardcoded_key
@@ -57,7 +60,9 @@ if not api_key or "貼在這裡" in api_key:
     st.warning("⚠️ 請貼入您在 Google AI Studio 申請的 `AIzaSy` 金鑰。")
     st.stop()
 
-genai.configure(api_key=api_key)
+# 🚨 核心切換：強制綁定經典版 SDK，並指定 transport="rest" (徹底避開 gRPC 憑證綁架)
+genai.configure(api_key=api_key, transport="rest")
+# 初始化 2.5 模型
 model = genai.GenerativeModel('gemini-2.5-flash')
 
 # ==================== 2. 🗂️ GitHub 自動資料夾雙模掃描 ====================
@@ -161,19 +166,6 @@ def fetch_cloud_pdf_bytes(file_name):
             with urllib.request.urlopen(req) as resp: return resp.read()
         except: return None
 
-# 🌟 核心功能：將 PDF 二進位流榨成純文字
-def extract_text_from_pdf_bytes(pdf_bytes, doc_name):
-    try:
-        reader = PyPDF2.PdfReader(io.BytesIO(pdf_bytes))
-        text = f"--- 以下是講義《{doc_name}》的內容 ---\n"
-        for i, page in enumerate(reader.pages):
-            page_text = page.extract_text()
-            if page_text:
-                text += f"[第 {i+1} 頁]\n{page_text}\n"
-        return text + "\n"
-    except Exception as e:
-        return f"--- 無法讀取講義《{doc_name}》的文字內容：{e} ---\n"
-
 # ==================== 3. UI 主介面 ====================
 st.subheader("📂 Step 1: 選取或上傳課程講義 PDF")
 
@@ -209,32 +201,38 @@ if total_pdf_count > 0:
     exam_title = str(exam_title_input) if exam_title_input else "測驗題庫"
     excel_filename = str(excel_filename_input) if excel_filename_input else "精修題庫"
 
-    # ==================== 4. AI 出題與排版核心 (純文字解析版) ====================
+    # ==================== 4. AI 出題與排版核心 (經典穩定版) ====================
     if st.button("⚡ 開始全自動雙模融合出題 ⚡", use_container_width=True):
         try:
-            with st.spinner("🧠 正在本地解析講義文字（安全繞過 Google 限制）..."):
-                all_extracted_text = ""
+            with st.spinner("🧠 正在準備與同步雲端/本地講義檔案..."):
+                contents_payload = []
                 
                 # 處理本地上傳的 PDF
                 for pdf_file in uploaded_pdfs:
                     pdf_bytes = pdf_file.read()
-                    all_extracted_text += extract_text_from_pdf_bytes(pdf_bytes, pdf_file.name)
+                    contents_payload.append({
+                        "mime_type": "application/pdf",
+                        "data": pdf_bytes
+                    })
                 
                 # 處理雲端講義
                 for cloud_pdf_name in selected_cloud_pdfs:
                     c_bytes = fetch_cloud_pdf_bytes(cloud_pdf_name)
                     if c_bytes:
-                        all_extracted_text += extract_text_from_pdf_bytes(c_bytes, cloud_pdf_name)
+                        contents_payload.append({
+                            "mime_type": "application/pdf",
+                            "data": c_bytes
+                        })
 
-            with st.spinner("🧠 AI 正在通盤研讀講義內容並為您精心設計題目中... 請稍候"):
-                range_instruction = f"精準鎖定這些講義內容中的【{page_range}】" if "整份" not in page_range and "全部" not in page_range else "「通盤掃描並融合這幾份講義」的完整內容，宏觀地在不同的講義、章節與核心觀念中平均分佈提取核心重點"
+            with st.spinner("🧠 AI 正在通盤研讀所有講義並為您精心設計題目中... 請稍候"):
+                range_instruction = f"精準鎖定這些 PDF 檔案中的【{page_range}】" if "整份" not in page_range and "全部" not in page_range else "「通盤掃描並融合這幾份 PDF 檔案」的完整內容，宏觀地在不同的講義、章節與核心觀念中平均分佈提取核心重點"
 
                 history_block = ""
                 if history_titles:
                     history_block = "⚠️ 絕對禁止重複、改寫或高度雷同以下這些已經出過的舊題目：\n" + "\n".join([f"- {t}" for t in history_titles])
 
                 prompt = f"""
-                你現在是一位資深的醫學與生物科學教授。請根據下方我提供的「多份講義純文字萃取內容」，{range_instruction}，並圍繞核心主題【{topic_name}】出 {num_questions} 題五選一的單選題。
+                你現在是一位資深的醫學與生物科學教授。請根據使用者夾帶的這多份 PDF 檔案，{range_instruction}，並圍繞核心主題【{topic_name}】出 {num_questions} 題五選一的單選題。
                 
                 {history_block}
                 
@@ -244,16 +242,17 @@ if total_pdf_count > 0:
                 
                 2. 只有【針對各選項之詳解】與【出處】欄位必須用繁體中文詳細解釋。詳解必須非常詳細，逐行解釋為什麼該選項正確或錯誤，換行請用 \\n 符號。
                 3. 【題目內容】與【選項A】~【選項E】還有【正確答案】請使用「全英文 (Full English)」。
-                4. 【出處】因為文本中有標註「[第 X 頁]」與講義名稱，你必須精準指出這題是出自哪一份講義的第幾頁！
+                4. 【出處】格式固定為：「該題目對應之原始PDF完整真實檔名」第 XX 頁。因為本次有多份講義，你必須精準指出這題到底是出自哪一個檔案的第幾頁！
                 5. 正確答案（A, B, C, D, E）的總體數量分布要稍微平均一些，但也不要太過絕對的平均。
 
                 請直接輸出完整的 JSON 陣列，不要包含 ```json 等任何 Markdown 外包裝字串。
-
-                {all_extracted_text}
                 """
 
-                # 🚨 因為我們傳的是純文字，Google 會把它當作一般聊天，絕對不會觸發檔案上傳的 401 錯誤！
-                response = model.generate_content(prompt)
+                # 把 Prompt 加進去
+                contents_payload.append(prompt)
+
+                # 發送請求（經典版引擎 + REST 傳輸）
+                response = model.generate_content(contents_payload)
 
                 clean_response = response.text.strip()
                 if clean_response.startswith("```json"):
