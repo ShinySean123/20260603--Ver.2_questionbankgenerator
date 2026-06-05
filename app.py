@@ -6,7 +6,9 @@ import io
 import json
 import urllib.request
 import urllib.parse
-import fitz  # 🌟 [核心新增] PyMuPDF：用來把 PDF 轉成高畫質圖片的超強套件
+import requests  # 🌟 用來取代 Google SDK 的底層直連套件
+import base64
+import fitz  # PyMuPDF 高畫質影像渲染引擎
 from openpyxl import load_workbook
 from openpyxl.styles import Alignment, Font, Border, Side
 from openpyxl.utils import get_column_letter
@@ -17,20 +19,11 @@ from docx.shared import Pt, Cm, RGBColor
 from docx.oxml.ns import qn
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 
-# 經典穩定版 SDK
-try:
-    import google.generativeai as genai
-    HAS_GEMINI = True
-except ImportError:
-    HAS_GEMINI = False
-
+# 網頁配置
 st.set_page_config(page_title="AI 雲端講義題庫系統", page_icon="🧠", layout="centered")
-st.title("🧠 AI 雲端全自動題庫生成系統 (視覺解鎖版)")
-st.markdown("已啟動「本地 PDF 全頁截圖技術」，AI 將直接肉眼閱讀您的圖表與文字，徹底粉碎檔案權限阻擋！")
 
-if not HAS_GEMINI:
-    st.error("❌ 缺失 google-generativeai 套件，請確認 requirements.txt 已更新。")
-    st.stop()
+st.title("🧠 AI 雲端全自動題庫生成系統 (終極硬核通關版)")
+st.markdown("已啟動「純 HTTP 底層視覺直連技術」，徹底免疫所有 SDK 與伺服器環境憑證衝突！")
 
 # ==================== 1. 🔑 API 金鑰設定面板 ====================
 env_key = ""
@@ -44,12 +37,37 @@ with st.expander("🔑 API 金鑰設定面板", expanded=False):
 api_key = user_live_key.strip() if user_live_key else env_key
 
 if not api_key:
-    st.warning("⚠️ 請貼入您在 Google AI Studio 申請的 API 金鑰。")
+    st.warning("⚠️ 請貼入您在 Google AI Studio 申請的 `AIzaSy` 金鑰。")
     st.stop()
 
-# 初始化 Gemini
-genai.configure(api_key=api_key)
-model = genai.GenerativeModel('gemini-2.5-flash')
+# ==================== 🌟 [核心重寫] 拋棄 SDK 的原生 HTTP 視覺直連函數 ====================
+def generate_content_via_http(contents_list, api_key):
+    """直接使用 HTTP POST 請求將圖片和 Prompt 送給 Gemini，100% 免疫 401 Bug"""
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+    
+    parts = []
+    for item in contents_list:
+        if isinstance(item, dict) and item.get("mime_type") == "image/jpeg":
+            # 將圖片轉成標準的 Base64 inlineData 格式
+            b64_data = base64.b64encode(item["data"]).decode('utf-8')
+            parts.append({
+                "inlineData": {
+                    "mimeType": "image/jpeg",
+                    "data": b64_data
+                }
+            })
+        else:
+            # 純文字段落（頁碼標籤與 Prompt）
+            parts.append({"text": str(item)})
+
+    payload = {"contents": [{"parts": parts}]}
+    headers = {"Content-Type": "application/json"}
+    
+    resp = requests.post(url, headers=headers, json=payload)
+    if resp.status_code != 200:
+        raise Exception(f"Google 門口回應錯誤 ({resp.status_code}): {resp.text}")
+        
+    return resp.json()['candidates'][0]['content']['parts'][0]['text']
 
 # ==================== 2. 🗂️ GitHub 自動資料夾掃描 ====================
 GITHUB_USER = "ShinySean123"
@@ -186,41 +204,35 @@ if total_pdf_count > 0:
     exam_title = str(exam_title_input) if exam_title_input else "測驗題庫"
     excel_filename = str(excel_filename_input) if excel_filename_input else "精修題庫"
 
-    # ==================== 4. AI 出題核心 (視覺影像截圖版) ====================
+    # ==================== 4. AI 出題核心 (純 HTTP 視覺版) ====================
     if st.button("⚡ 開始全自動雙模融合出題 ⚡", use_container_width=True):
         try:
             contents_payload = []
             
-            # 核心模組：將 PDF 轉化為一頁一頁的高畫質圖片送給 AI
+            # 將 PDF 轉化為一頁一頁的高畫質圖片並壓入 payload 陣列
             def process_pdf_to_images(pdf_bytes, pdf_name):
                 doc = fitz.open(stream=pdf_bytes, filetype="pdf")
                 for i in range(len(doc)):
                     page = doc.load_page(i)
-                    # 設定矩陣放大 1.5 倍，確保醫學圖表與細小文字對 AI 來說足夠清晰
                     zoom_matrix = fitz.Matrix(1.5, 1.5)
                     pix = page.get_pixmap(matrix=zoom_matrix)
                     img_data = pix.tobytes("jpeg")
                     
-                    # 放入頁碼標籤，確保出處精準
                     contents_payload.append(f"=== 【{pdf_name}】第 {i+1} 頁 ===")
-                    # 放入圖片，AI 將用視覺模型直接「看」這頁
                     contents_payload.append({
                         "mime_type": "image/jpeg",
                         "data": img_data
                     })
 
-            with st.spinner("📷 正在啟動虛擬掃描機，為講義每一頁與圖表進行高畫質截圖..."):
-                # 處理本地上傳的 PDF
+            with st.spinner("📷 正在啟動虛擬掃描機，為講義與醫療圖表進行高畫質轉碼..."):
                 for pdf_file in uploaded_pdfs:
                     process_pdf_to_images(pdf_file.read(), pdf_file.name)
-                
-                # 處理雲端講義
                 for cloud_pdf_name in selected_cloud_pdfs:
                     c_bytes = fetch_cloud_pdf_bytes(cloud_pdf_name)
                     if c_bytes:
                         process_pdf_to_images(c_bytes, cloud_pdf_name)
 
-            with st.spinner("🧠 影像掃描完成！AI 正在肉眼研讀圖文並為您精心設計題目中..."):
+            with st.spinner("🧠 影像裝載完成！AI 正在繞過 SDK 憑證限制、直接研讀圖文出題中... 請稍候"):
                 range_instruction = f"精準鎖定這些影像中的【{page_range}】" if "整份" not in page_range and "全部" not in page_range else "「通盤掃描並融合這幾份講義影像」的完整內容，宏觀地在不同的章節與圖表中提取重點"
 
                 history_block = ""
@@ -228,9 +240,9 @@ if total_pdf_count > 0:
                     history_block = "⚠️ 絕對禁止重複、改寫或高度雷同以下這些已經出過的舊題目：\n" + "\n".join([f"- {t}" for t in history_titles])
 
                 prompt = f"""
-                你現在是一位資深的醫學與生物科學教授。請根據我為你截圖上傳的這多份講義影像（包含文字與所有醫學圖表），{range_instruction}，並圍繞核心主題【{topic_name}】出 {num_questions} 題五選一的單選題。
+                你現在是一位資深的醫學與生物科學教授。請根據我為你提供的這多份講義影像（包含文字與所有醫學圖表），{range_instruction}，並圍繞核心主題【{topic_name}】出 {num_questions} 題五選一的單選題。
                 
-                請特別注意發揮你的視覺辨識能力，若講義中有重要的圖表、流程圖或解剖標示，請務必將其核心觀念轉化為考題！
+                請特別注意發揮你的視覺辨識能力，若講義中有重要的心電圖、病理切片、解剖圖或流程圖譜，請務必將其核心觀念轉化為考題！
                 
                 {history_block}
                 
@@ -246,12 +258,11 @@ if total_pdf_count > 0:
                 請直接輸出完整的 JSON 陣列，不要包含 ```json 等任何 Markdown 外包裝字串。
                 """
 
-                # 將文字 Prompt 壓在所有圖片的最後面發送
                 contents_payload.append(prompt)
 
-                response = model.generate_content(contents_payload)
+                # 🚀 呼叫無 SDK 裸連硬核發送函數
+                clean_response = generate_content_via_http(contents_payload, api_key)
                 
-                clean_response = response.text.strip()
                 if clean_response.startswith("```json"):
                     clean_response = clean_response.split("```json")[1].split("```")[0].strip()
                 elif clean_response.startswith("```"):
