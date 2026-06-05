@@ -271,7 +271,12 @@ if total_pdf_count > 0:
                     contents=contents_payload,
                 )
 
-                for g_file in gemini_file_objects: client.files.delete(name=g_file.name)
+                # 題目產生完成後，嘗試刪除雲端暫存檔（失敗則跳過，不卡住後續程序）
+                for g_file in gemini_file_objects:
+                    try:
+                        client.files.delete(name=g_file.name)
+                    except Exception:
+                        pass  # 忽略刪除權限錯誤，交由 Google 雲端 48 小時自動過期機制處理
 
                 clean_response = response.text.strip()
                 if clean_response.startswith("```json"):
