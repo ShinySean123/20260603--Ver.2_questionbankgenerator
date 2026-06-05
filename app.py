@@ -27,37 +27,53 @@ except ImportError:
 # 網頁配置
 st.set_page_config(page_title="AI 雲端講義題庫系統", page_icon="🧠", layout="centered")
 
-st.title("🧠 AI 雲端全自動題庫生成系統")
-st.markdown("連動 GitHub 講義書櫃與歷史題庫，AI 智慧跨檔案避重，一鍵產出完美 Word 與 Excel！")
+st.title("🧠 AI 雲端全自動題庫生成系統 (診斷優化版)")
 
 if not HAS_GEMINI:
     st.error("❌ 缺失 google-genai 套件，請在 requirements.txt 中新增。")
     st.stop()
 
-# ==================== 1. 智慧系統設定 (強力攔截並過濾舊 Key) ====================
-api_key = ""
-
-# 1A. 嘗試讀取 Streamlit 雲端後台的 Secrets
+# ==================== 1. 🔍 診斷級系統設定 ====================
+env_key = ""
 try:
     if "GEMINI_API_KEY" in st.secrets:
-        api_key = st.secrets["GEMINI_API_KEY"]
+        env_key = st.secrets["GEMINI_API_KEY"]
 except Exception:
     pass
 
-# 🚨 【核心修正】強制黑名單防護
-# 如果發現系統從任何地方（包含雲端 Secrets 後台）抓到了這把沒有權限的舊測試 Key
-# 我們直接強制把它清空，絕對不允許它干擾系統！
+# 黑名單舊 Key 屏蔽
 BAD_OLD_KEY = "AQ.Ab8RN6JYf-iaPJ_Ta8FocF8iIrB6b9RoeXvDkB5Rt2Ml1mqCng"
-if api_key and api_key.strip() == BAD_OLD_KEY:
-    api_key = "" 
+if env_key and env_key.strip() == BAD_OLD_KEY:
+    env_key = ""
 
-# 1B. 當舊 Key 被消滅、或是後台沒設定時，強制換上你專屬的正式萬用金鑰
-if not api_key:
-    # 🎯 請把下方這串文字，改成你自己在 AI Studio 申請、以 AIzaSy 開頭的正式金鑰！
-    api_key = "AQ.Ab8RN6JWYjwFlTIz8zAuKjCjjbLZfULtRmCGmEJjh5kv_YpiDw"
+# 預設使用你在程式碼裡寫死的代鑰
+hardcoded_key = "AQ.Ab8RN6JWYjwFlTIz8zAuKjCjjbLZfULtRmCGmEJjh5kv_YpiDw"
 
-if not api_key or api_key == "AIzaSy你的全新正式萬用API_KEY_貼在這裡":
-    st.warning("⚠️ 請先在 `app.py` 第 59 行換上您在 Google AI Studio 申請的全新 `AIzaSy` 正式金鑰。")
+default_key = env_key if env_key else hardcoded_key
+
+# 🌟 診斷面板：直接在網頁最上方渲染一個透明的檢查機制
+with st.expander("🔑 🔑 🔑 API 金鑰後台診斷面板 (除錯完可折疊)", expanded=True):
+    st.markdown("如果遇到 401 錯誤，請直接在下方框框**貼上最新申請的 Key**，這會強制覆寫所有後台設定！")
+    
+    # 遮罩處理以便 debug 卻不洩露隱私
+    masked_default = ""
+    if default_key and default_key != "AIzaSy你的全新正式萬用API_KEY_貼在這裡":
+        masked_default = f"{default_key[:8]}...{default_key[-6:]}" if len(default_key) > 15 else "格式異常的金鑰"
+    else:
+        masked_default = "尚未成功填入有效金鑰"
+        
+    st.caption(f"目前系統偵測到的預設金鑰狀態: `{masked_default}`")
+    
+    # 讓使用者在網頁介面直接貼上金鑰，作為最終物理防禦
+    user_live_key = st.text_input("💡 請在此輸入以 `AIzaSy` 開頭的全新正式 API Key：", 
+                                  value=default_key if "AIzaSy" in default_key and default_key != "AIzaSy你的全新正式萬用API_KEY_貼在這裡" else "",
+                                  type="password", 
+                                  placeholder="AIzaSy...")
+
+api_key = user_live_key.strip() if user_live_key else default_key
+
+if not api_key or "貼在這裡" in api_key:
+    st.warning("⚠️ 請在上方診斷面板貼入您在 Google AI Studio 申請的最新 `AIzaSy` 正式金鑰。")
     st.stop()
 
 # 初始化 Gemini 用戶端
@@ -355,7 +371,7 @@ if total_pdf_count > 0:
             st.error(f"出題過程出錯：{e}")
             st.exception(e)
 
-    # ==================== 5. 獨立持久化渲染下載按鈕 ====================
+    # ==================== 5. 獨立下載按鈕 ====================
     if "generated_excel" in st.session_state and "generated_word" in st.session_state:
         st.success("🎉 題庫與試卷皆已設計完成！請在下方直接點擊下載原始檔案：")
         
