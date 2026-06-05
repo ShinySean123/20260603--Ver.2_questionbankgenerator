@@ -16,10 +16,9 @@ from docx.shared import Pt, Cm, RGBColor
 from docx.oxml.ns import qn
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 
-# Google Gemini API 相關
+# Google Gemini API 相關 (改用經典穩定版 SDK)
 try:
-    from google import genai
-    from google.genai import types
+    import google.generativeai as genai
     HAS_GEMINI = True
 except ImportError:
     HAS_GEMINI = False
@@ -27,13 +26,13 @@ except ImportError:
 # 網頁配置
 st.set_page_config(page_title="AI 雲端講義題庫系統", page_icon="🧠", layout="centered")
 
-st.title("🧠 AI 雲端全自動題庫生成系統 (終極通關版)")
+st.title("🧠 AI 雲端全自動題庫生成系統 (終極穩定版)")
 
 if not HAS_GEMINI:
-    st.error("❌ 缺失 google-genai 套件，請在 requirements.txt 中新增。")
+    st.error("❌ 缺失 google-generativeai 套件，請確認 requirements.txt 已更新。")
     st.stop()
 
-# ==================== 1. 🔍 診斷級系統設定 ====================
+# ==================== 1. 🔍 系統設定 ====================
 env_key = ""
 try:
     if "GEMINI_API_KEY" in st.secrets:
@@ -42,10 +41,10 @@ except Exception:
     pass
 
 # 預設使用你在程式碼裡寫死的代鑰
-hardcoded_key = "AQ.Ab8RN6IQXEwIP4B08KDv9FvC_KtFY1ARYKB_4IpIl-3pncwSCA"
+hardcoded_key = "AIzaSy你的全新正式萬用API_KEY_貼在這裡"
 default_key = env_key if env_key else hardcoded_key
 
-with st.expander("🔑 API 金鑰後台診斷面板", expanded=False):
+with st.expander("🔑 API 金鑰設定面板", expanded=False):
     st.markdown("如果遇到權限錯誤，請直接在下方貼上 API Key 強制覆寫。")
     user_live_key = st.text_input("💡 請輸入 API Key：", 
                                   value=default_key if "AIzaSy" in default_key and "貼在這裡" not in default_key else "",
@@ -57,7 +56,10 @@ if not api_key or "貼在這裡" in api_key:
     st.warning("⚠️ 請貼入您在 Google AI Studio 申請的 `AIzaSy` 金鑰。")
     st.stop()
 
-client = genai.Client(api_key=api_key)
+# 🚨 核心切換：強制綁定經典版 SDK
+genai.configure(api_key=api_key)
+# 初始化 2.5 最新模型
+model = genai.GenerativeModel('gemini-2.5-flash')
 
 # ==================== 2. 🗂️ GitHub 自動資料夾雙模掃描 ====================
 GITHUB_USER = "ShinySean123"
@@ -195,28 +197,28 @@ if total_pdf_count > 0:
     exam_title = str(exam_title_input) if exam_title_input else "測驗題庫"
     excel_filename = str(excel_filename_input) if excel_filename_input else "精修題庫"
 
-    # ==================== 4. AI 出題與排版核心 (繞道版) ====================
+    # ==================== 4. AI 出題與排版核心 (經典穩定版) ====================
     if st.button("⚡ 開始全自動雙模融合出題 ⚡", use_container_width=True):
         try:
             with st.spinner("🧠 正在準備與同步雲端/本地講義檔案..."):
-                # 🚨 【核心繞道機制】：不再使用 client.files.upload，改用 Inline 夾帶檔！
                 contents_payload = []
                 
                 # 處理本地上傳的 PDF
                 for pdf_file in uploaded_pdfs:
                     pdf_bytes = pdf_file.read()
-                    # 直接把檔案塞入 payload 中，不經過 Google 雲端硬碟
-                    contents_payload.append(
-                        types.Part.from_bytes(data=pdf_bytes, mime_type="application/pdf")
-                    )
+                    contents_payload.append({
+                        "mime_type": "application/pdf",
+                        "data": pdf_bytes
+                    })
                 
                 # 處理雲端講義
                 for cloud_pdf_name in selected_cloud_pdfs:
                     c_bytes = fetch_cloud_pdf_bytes(cloud_pdf_name)
                     if c_bytes:
-                        contents_payload.append(
-                            types.Part.from_bytes(data=c_bytes, mime_type="application/pdf")
-                        )
+                        contents_payload.append({
+                            "mime_type": "application/pdf",
+                            "data": c_bytes
+                        })
 
             with st.spinner("🧠 AI 正在通盤研讀所有講義並為您精心設計題目中... 請稍候"):
                 range_instruction = f"精準鎖定這些 PDF 檔案中的【{page_range}】" if "整份" not in page_range and "全部" not in page_range else "「通盤掃描並融合這幾份 PDF 檔案」的完整內容，宏觀地在不同的講義、章節與核心觀念中平均分佈提取核心重點"
@@ -242,16 +244,11 @@ if total_pdf_count > 0:
                 請直接輸出完整的 JSON 陣列，不要包含 ```json 等任何 Markdown 外包裝字串。
                 """
 
-                # 把文字 Prompt 也加入 Payload 中
+                # 把 Prompt 加進去
                 contents_payload.append(prompt)
 
-                # 發送請求（完美避開 File API 驗證）
-                response = client.models.generate_content(
-                    model='gemini-2.5-flash',
-                    contents=contents_payload,
-                )
-
-                # 因為沒有上傳暫存檔，所以完全不需要執行 client.files.delete()！
+                # 發送請求（經典版引擎）
+                response = model.generate_content(contents_payload)
 
                 clean_response = response.text.strip()
                 if clean_response.startswith("```json"):
@@ -276,7 +273,7 @@ if total_pdf_count > 0:
                     row_dict['出處'] = str(q.get('出處', '')).strip()
                     processed_rows.append(row_dict)
 
-                # ==================== 5. 產出 Excel 檔案二進位流 ====================
+                # ==================== 5. 產出 Excel ====================
                 excel_out = io.BytesIO()
                 pd.DataFrame(processed_rows).to_excel(excel_out, index=False)
                 excel_out.seek(0)
@@ -305,7 +302,7 @@ if total_pdf_count > 0:
                 final_excel_bytes = io.BytesIO()
                 wb.save(final_excel_bytes)
 
-                # ==================== 6. 產出 Word 檔案二進位流 ====================
+                # ==================== 6. 產出 Word ====================
                 doc = Document()
                 sec = doc.sections[0]
                 sec.top_margin = sec.bottom_margin = sec.left_margin = sec.right_margin = Cm(1.27)
