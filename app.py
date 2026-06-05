@@ -6,8 +6,7 @@ import io
 import json
 import urllib.request
 import urllib.parse
-import requests
-import base64  # 🌟 [核心新增] 用來把 PDF 轉成純文字夾帶的套件
+import fitz  # 🌟 [核心新增] PyMuPDF：用來把 PDF 轉成高畫質圖片的超強套件
 from openpyxl import load_workbook
 from openpyxl.styles import Alignment, Font, Border, Side
 from openpyxl.utils import get_column_letter
@@ -18,11 +17,20 @@ from docx.shared import Pt, Cm, RGBColor
 from docx.oxml.ns import qn
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 
-# 網頁配置
-st.set_page_config(page_title="AI 雲端講義題庫系統", page_icon="🧠", layout="centered")
+# 經典穩定版 SDK
+try:
+    import google.generativeai as genai
+    HAS_GEMINI = True
+except ImportError:
+    HAS_GEMINI = False
 
-st.title("🧠 AI 雲端全自動題庫生成系統 (真・終極通關版)")
-st.markdown("已啟動底層 Base64 夾帶模式，徹底無視所有 Google 檔案上傳權限審查！")
+st.set_page_config(page_title="AI 雲端講義題庫系統", page_icon="🧠", layout="centered")
+st.title("🧠 AI 雲端全自動題庫生成系統 (視覺解鎖版)")
+st.markdown("已啟動「本地 PDF 全頁截圖技術」，AI 將直接肉眼閱讀您的圖表與文字，徹底粉碎檔案權限阻擋！")
+
+if not HAS_GEMINI:
+    st.error("❌ 缺失 google-generativeai 套件，請確認 requirements.txt 已更新。")
+    st.stop()
 
 # ==================== 1. 🔑 API 金鑰設定面板 ====================
 env_key = ""
@@ -31,44 +39,19 @@ try:
 except Exception: pass
 
 with st.expander("🔑 API 金鑰設定面板", expanded=False):
-    st.markdown("請輸入你的 `AIzaSy` 開頭全新個人金鑰：")
-    user_live_key = st.text_input("💡 API Key：", value=env_key if env_key else "", type="password")
+    user_live_key = st.text_input("💡 請輸入 API Key：", value=env_key if env_key else "", type="password")
 
 api_key = user_live_key.strip() if user_live_key else env_key
 
 if not api_key:
-    st.warning("⚠️ 請貼入您在 Google AI Studio 申請的 `AIzaSy` 金鑰。")
+    st.warning("⚠️ 請貼入您在 Google AI Studio 申請的 API 金鑰。")
     st.stop()
 
-# ==================== 🌟 [核心重寫] 真正的直連夾帶函數 ====================
-def generate_content_direct(pdf_bytes_list, prompt, api_key):
-    """直接呼叫 Gemini 2.5 Flash 生成文字，完全不使用上傳 API"""
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
-    
-    parts = []
-    # 將每一份 PDF 轉成 Base64 格式，當成「內嵌資料」直接塞進 Payload
-    for pdf_bytes in pdf_bytes_list:
-        b64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
-        parts.append({
-            "inlineData": {
-                "mimeType": "application/pdf",
-                "data": b64_pdf
-            }
-        })
-    
-    # 把我們的文字 Prompt 也塞進去
-    parts.append({"text": prompt})
+# 初始化 Gemini
+genai.configure(api_key=api_key)
+model = genai.GenerativeModel('gemini-2.5-flash')
 
-    payload = {"contents": [{"parts": parts}]}
-    headers = {"Content-Type": "application/json"}
-    
-    resp = requests.post(url, headers=headers, json=payload)
-    if resp.status_code != 200:
-        raise Exception(f"出題拒絕 ({resp.status_code}): {resp.text}")
-    
-    return resp.json()['candidates'][0]['content']['parts'][0]['text']
-
-# ==================== 2. 🗂️ GitHub 自動資料夾雙模掃描 ====================
+# ==================== 2. 🗂️ GitHub 自動資料夾掃描 ====================
 GITHUB_USER = "ShinySean123"
 GITHUB_REPO = "20260603--Ver.2_questionbankgenerator"
 GITHUB_FOLDER_HIST = "history_db"          
@@ -138,7 +121,6 @@ with st.sidebar:
         st.info(f"ℹ️ 目前雲端未偵測到 PDF。")
         selected_cloud_pdfs = []
 
-# ==================== 讀取雲端二進位流函數 ====================
 def fetch_excel_titles(file_name):
     encoded_name = urllib.parse.quote(file_name)
     raw_url = f"https://raw.githubusercontent.com/{encoded_user}/{encoded_repo}/main/{GITHUB_FOLDER_HIST}/{encoded_name}"
@@ -204,31 +186,51 @@ if total_pdf_count > 0:
     exam_title = str(exam_title_input) if exam_title_input else "測驗題庫"
     excel_filename = str(excel_filename_input) if excel_filename_input else "精修題庫"
 
-    # ==================== 4. AI 出題與排版核心 ====================
+    # ==================== 4. AI 出題核心 (視覺影像截圖版) ====================
     if st.button("⚡ 開始全自動雙模融合出題 ⚡", use_container_width=True):
         try:
-            pdf_bytes_list = []
+            contents_payload = []
             
-            with st.spinner("🧠 正在抓取與解析雲端/本地講義..."):
+            # 核心模組：將 PDF 轉化為一頁一頁的高畫質圖片送給 AI
+            def process_pdf_to_images(pdf_bytes, pdf_name):
+                doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+                for i in range(len(doc)):
+                    page = doc.load_page(i)
+                    # 設定矩陣放大 1.5 倍，確保醫學圖表與細小文字對 AI 來說足夠清晰
+                    zoom_matrix = fitz.Matrix(1.5, 1.5)
+                    pix = page.get_pixmap(matrix=zoom_matrix)
+                    img_data = pix.tobytes("jpeg")
+                    
+                    # 放入頁碼標籤，確保出處精準
+                    contents_payload.append(f"=== 【{pdf_name}】第 {i+1} 頁 ===")
+                    # 放入圖片，AI 將用視覺模型直接「看」這頁
+                    contents_payload.append({
+                        "mime_type": "image/jpeg",
+                        "data": img_data
+                    })
+
+            with st.spinner("📷 正在啟動虛擬掃描機，為講義每一頁與圖表進行高畫質截圖..."):
                 # 處理本地上傳的 PDF
                 for pdf_file in uploaded_pdfs:
-                    pdf_bytes_list.append(pdf_file.read())
+                    process_pdf_to_images(pdf_file.read(), pdf_file.name)
                 
                 # 處理雲端講義
                 for cloud_pdf_name in selected_cloud_pdfs:
                     c_bytes = fetch_cloud_pdf_bytes(cloud_pdf_name)
                     if c_bytes:
-                        pdf_bytes_list.append(c_bytes)
+                        process_pdf_to_images(c_bytes, cloud_pdf_name)
 
-            with st.spinner("🧠 講義加載完成！AI 正在通盤研讀並精心設計題目中... 請稍候"):
-                range_instruction = f"精準鎖定這些 PDF 檔案中的【{page_range}】" if "整份" not in page_range and "全部" not in page_range else "「通盤掃描並融合這幾份 PDF 檔案」的完整內容，宏觀地在不同的講義、章節與核心觀念中平均分佈提取核心重點"
+            with st.spinner("🧠 影像掃描完成！AI 正在肉眼研讀圖文並為您精心設計題目中..."):
+                range_instruction = f"精準鎖定這些影像中的【{page_range}】" if "整份" not in page_range and "全部" not in page_range else "「通盤掃描並融合這幾份講義影像」的完整內容，宏觀地在不同的章節與圖表中提取重點"
 
                 history_block = ""
                 if history_titles:
                     history_block = "⚠️ 絕對禁止重複、改寫或高度雷同以下這些已經出過的舊題目：\n" + "\n".join([f"- {t}" for t in history_titles])
 
                 prompt = f"""
-                你現在是一位資深的醫學與生物科學教授。請根據使用者夾帶的這多份 PDF 檔案，{range_instruction}，並圍繞核心主題【{topic_name}】出 {num_questions} 題五選一的單選題。
+                你現在是一位資深的醫學與生物科學教授。請根據我為你截圖上傳的這多份講義影像（包含文字與所有醫學圖表），{range_instruction}，並圍繞核心主題【{topic_name}】出 {num_questions} 題五選一的單選題。
+                
+                請特別注意發揮你的視覺辨識能力，若講義中有重要的圖表、流程圖或解剖標示，請務必將其核心觀念轉化為考題！
                 
                 {history_block}
                 
@@ -238,15 +240,18 @@ if total_pdf_count > 0:
                 
                 2. 只有【針對各選項之詳解】與【出處】欄位必須用繁體中文詳細解釋。詳解必須非常詳細，逐行解釋為什麼該選項正確或錯誤，換行請用 \\n 符號。
                 3. 【題目內容】與【選項A】~【選項E】還有【正確答案】請使用「全英文 (Full English)」。
-                4. 【出處】格式固定為：「該題目對應之原始PDF完整真實檔名」第 XX 頁。因為本次有多份講義，你必須精準指出這題到底是出自哪一個檔案的第幾頁！
-                5. 正確答案（A, B, C, D, E）的總體數量分布要稍微平均一些，但也不要太過絕對的平均。
+                4. 【出處】請根據我夾帶圖片前方的文字標籤（例如：=== 【檔名】第 X 頁 ===），精準指出這題是出自哪一個檔案的第幾頁！
+                5. 正確答案（A, B, C, D, E）的總體數量分布要稍微平均一些。
 
                 請直接輸出完整的 JSON 陣列，不要包含 ```json 等任何 Markdown 外包裝字串。
                 """
 
-                # 🚀 透過 HTTP 直連呼叫 Gemini，將 PDF 轉成純文字編碼夾帶過去
-                clean_response = generate_content_direct(pdf_bytes_list, prompt, api_key)
+                # 將文字 Prompt 壓在所有圖片的最後面發送
+                contents_payload.append(prompt)
+
+                response = model.generate_content(contents_payload)
                 
+                clean_response = response.text.strip()
                 if clean_response.startswith("```json"):
                     clean_response = clean_response.split("```json")[1].split("```")[0].strip()
                 elif clean_response.startswith("```"):
