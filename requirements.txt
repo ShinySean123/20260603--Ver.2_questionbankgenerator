@@ -2,5 +2,5 @@ streamlit
 pandas
 openpyxl
 python-docx
-google-generativeai
 PyMuPDF
+requests
