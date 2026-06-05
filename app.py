@@ -6,9 +6,6 @@ import io
 import json
 import urllib.request
 import urllib.parse
-from openpyxl import load_workbook
-from openpyxl.styles import Alignment, Font, Border, Side
-from openpyxl.utils import get_column_letter
 
 # Word 處理相關
 from docx import Document
@@ -27,38 +24,57 @@ except ImportError:
 # 網頁配置
 st.set_page_config(page_title="AI 雲端講義題庫系統", page_icon="🧠", layout="centered")
 
-st.title("🧠 AI 雲端全自動題庫生成系統")
-st.markdown("連動 GitHub 講義書櫃與歷史題庫，AI 智慧跨檔案避重，一鍵產出完美 Word 與 Excel！")
+st.title("🧠 AI 雲端全自動題庫生成系統 (原生通關版)")
 
 if not HAS_GEMINI:
     st.error("❌ 缺失 google-genai 套件，請在 requirements.txt 中新增。")
     st.stop()
 
-# ==================== 1. 智慧系統設定 ====================
-api_key = ""
+# ==================== 1. 🔍 診斷級系統設定 ====================
+env_key = ""
 try:
     if "GEMINI_API_KEY" in st.secrets:
-        api_key = st.secrets["GEMINI_API_KEY"]
+        env_key = st.secrets["GEMINI_API_KEY"]
 except Exception:
     pass
 
-if not api_key:
-    # 內建正式金鑰備用通道（已為您串接好新正式通道）
-    api_key = "AQ.Ab8RN6JggM7mYCGiTCKTS502tTBx9lIyClm1-I8ijL7pA3sFow"
+# 黑名單舊 Key 屏蔽
+BAD_OLD_KEY = "AQ.Ab8RN6JYf-iaPJ_Ta8FocF8iIrB6b9RoeXvDkB5Rt2Ml1mqCng"
+if env_key and env_key.strip() == BAD_OLD_KEY:
+    env_key = ""
+
+# 預設使用你在程式碼裡寫死的代鑰
+hardcoded_key = "AQ.Ab8RN6JggM7mYCGiTCKTS502tTBx9lIyClm1-I8ijL7pA3sFow"
+default_key = env_key if env_key else hardcoded_key
+
+with st.expander("🔑 API 金鑰後台診斷面板", expanded=True):
+    st.markdown("如果遇到 401 錯誤，請直接在下方框框**貼上最新申請的 Key**！")
+    masked_default = f"{default_key[:8]}...{default_key[-6:]}" if (default_key and "貼在這裡" not in default_key) else "尚未填入有效金鑰"
+    st.caption(f"目前系統偵測到的預設金鑰狀態: `{masked_default}`")
+    
+    user_live_key = st.text_input("💡 請在此輸入以 `AIzaSy` 開頭的全新正式 API Key：", 
+                                  value=default_key if "AIzaSy" in default_key and "貼在這裡" not in default_key else "",
+                                  type="password", 
+                                  placeholder="AIzaSy...")
+
+api_key = user_live_key.strip() if user_live_key else default_key
+
+if not api_key or "貼在這裡" in api_key:
+    st.warning("⚠️ 請在上方診斷面板貼入您在 Google AI Studio 申請的最新 `AIzaSy` 正式金鑰才能解鎖。")
+    st.stop()
 
 client = genai.Client(api_key=api_key)
 
-# ==================== 2. 🗂️ GitHub API 自動資料夾掃描 ====================
-# 已綁定您的專屬帳號與專案
+# ==================== 2. 🗂️ GitHub 自動資料夾雙模掃描 ====================
 GITHUB_USER = "ShinySean123"
 GITHUB_REPO = "20260603--Ver.2_questionbankgenerator"
-GITHUB_FOLDER_HIST = "history_db"          # 歷史題庫資料夾
-GITHUB_FOLDER_PDF = "current_materials"    # [NEW] 雲端講義資料夾
+GITHUB_FOLDER_HIST = "history_db"          
+GITHUB_FOLDER_PDF = "current_materials"    
 
 encoded_user = urllib.parse.quote(GITHUB_USER)
 encoded_repo = urllib.parse.quote(GITHUB_REPO)
 
-# --- 2A. 掃描歷史題庫黑名單 ---
+# --- 2A. 智慧歷史題庫掃描 ---
 github_api_hist_url = f"https://api.github.com/repos/{encoded_user}/{encoded_repo}/contents/{urllib.parse.quote(GITHUB_FOLDER_HIST)}"
 file_options = ["❌ 不使用歷史資料（全新出題）"]
 all_excel_files = [] 
@@ -70,16 +86,25 @@ try:
     for item in api_data:
         if item['type'] == 'file' and item['name'].endswith('.xlsx'):
             all_excel_files.append(item['name'])
-    if all_excel_files:
-        file_options.append("💥 比對資料夾內【所有檔案】（全面防重複）")
-        for f in all_excel_files: file_options.append(f)
 except Exception:
-    pass
+    # 💥 後備方案：如果 API 限制，改用公開網頁特徵抓取法
+    try:
+        html_url = f"https://github.com/{encoded_user}/{encoded_repo}/tree/main/{urllib.parse.quote(GITHUB_FOLDER_HIST)}"
+        req = urllib.request.Request(html_url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req) as resp:
+            html_text = resp.read().decode('utf-8')
+        all_excel_files = list(set(re.findall(r'title="([^"]+\.xlsx)"', html_text)))
+    except: pass
 
-# --- 2B. [NEW] 掃描 GitHub 講義書櫃 ---
-github_api_pdf_url = f"https://api.github.com/repos/{encoded_user}/{encoded_repo}/contents/{urllib.parse.quote(GITHUB_FOLDER_PDF)}"
+if all_excel_files:
+    file_options.append("💥 比對資料夾內【所有檔案】（全面防重複）")
+    for f in all_excel_files: file_options.append(f)
+
+# --- 2B. 智慧雲端講義書櫃掃描 (雙模強攻法) ---
 cloud_pdf_files = []
+github_api_pdf_url = f"https://api.github.com/repos/{encoded_user}/{encoded_repo}/contents/{urllib.parse.quote(GITHUB_FOLDER_PDF)}"
 
+# 模組一：嘗試標準 API 讀取
 try:
     req = urllib.request.Request(github_api_pdf_url, headers={'User-Agent': 'Mozilla/5.0'})
     with urllib.request.urlopen(req) as response:
@@ -90,27 +115,38 @@ try:
 except Exception:
     pass
 
-# --- 2C. 側邊欄 UI 渲染與黑名單加載 ---
+# 模組二：如果模組一沒抓到，啟動「網頁 HTML 解析法」（終極大招）
+if not cloud_pdf_files:
+    try:
+        html_url = f"https://github.com/{encoded_user}/{encoded_repo}/tree/main/{urllib.parse.quote(GITHUB_FOLDER_PDF)}"
+        req = urllib.request.Request(html_url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req) as resp:
+            html_text = resp.read().decode('utf-8')
+        
+        # 撈出所有符合 PDF 結尾的檔名特徵
+        found_pdfs = re.findall(r'title="([^"]+\.[pP][dD][fF])"', html_text)
+        # 解碼網址中可能被轉譯的中文
+        cloud_pdf_files = list(set([urllib.parse.unquote(p) for p in found_pdfs]))
+    except Exception:
+        pass
+
+# --- 2C. 側邊欄 UI 渲染 ---
 history_titles = []
 with st.sidebar:
     st.header("⚙️ 雲端資料庫狀態")
     st.markdown(f"**目前帳號:** `{GITHUB_USER}`")
-    
-    # 呈現防重複模式選擇
     selected_mode = st.selectbox("請選擇歷史題庫防重複模式：", file_options)
     
-    # [NEW] 呈現雲端講義書櫃狀態
     st.markdown("---")
     st.header("📚 雲端講義書櫃")
     if cloud_pdf_files:
-        st.success(f"🟢 偵測到雲端資料夾內有 {len(cloud_pdf_files)} 份 PDF 講義")
-        # 讓使用者多選想要連動哪幾份雲端講義
+        st.success(f"🟢 成功解鎖！偵測到雲端有 {len(cloud_pdf_files)} 份 PDF 講義")
         selected_cloud_pdfs = st.multiselect("請勾選本次想連動出題的雲端講義：", cloud_pdf_files)
     else:
-        st.info(f"ℹ️ 目前雲端 `{GITHUB_FOLDER_PDF}/` 資料夾內沒有 PDF 檔案。")
+        st.info(f"ℹ️ 目前雲端 `{GITHUB_FOLDER_PDF}/` 資料夾內未偵測到 PDF。")
         selected_cloud_pdfs = []
 
-# 讀取 Excel 黑名單函數
+# ==================== 讀取雲端二進位流函數 ====================
 def fetch_excel_titles(file_name):
     encoded_name = urllib.parse.quote(file_name)
     raw_url = f"https://raw.githubusercontent.com/{encoded_user}/{encoded_repo}/main/{GITHUB_FOLDER_HIST}/{encoded_name}"
@@ -128,33 +164,32 @@ if "【所有檔案】" in selected_mode:
 elif selected_mode != "❌ 不使用歷史資料（全新出題）":
     history_titles = fetch_excel_titles(selected_mode)
 
-# 從 GitHub 抓取單一 PDF 二進位資料的函數
 def fetch_cloud_pdf_bytes(file_name):
     encoded_name = urllib.parse.quote(file_name)
     raw_url = f"https://raw.githubusercontent.com/{encoded_user}/{encoded_repo}/main/{GITHUB_FOLDER_PDF}/{encoded_name}"
     try:
         req = urllib.request.Request(raw_url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req) as resp:
-            return resp.read()
-    except Exception as e:
-        st.error(f"下載雲端講義《{file_name}》失敗：{e}")
-        return None
+        with urllib.request.urlopen(req) as resp: return resp.read()
+    except:
+        # 後備下載法（處理部分特殊儲存庫結構）
+        try:
+            raw_url_alt = f"https://github.com/{encoded_user}/{encoded_repo}/raw/main/{GITHUB_FOLDER_PDF}/{encoded_name}"
+            req = urllib.request.Request(raw_url_alt, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req) as resp: return resp.read()
+        except:
+            st.error(f"下載雲端講義《{file_name}》失敗，請確認該檔案在 GitHub 是否正常。")
+            return None
 
 # ==================== 3. UI 主介面 ====================
 st.subheader("📂 Step 1: 選取或上傳課程講義 PDF")
 
-# 同時支援「本地上傳」與顯示「已勾選的雲端講義」
 uploaded_pdfs = st.file_uploader("從本機電腦上傳新講義 PDF (可多選)", type=["pdf"], accept_multiple_files=True)
-
-# 整合本地與雲端的講義列表描述
 total_pdf_count = len(uploaded_pdfs) + len(selected_cloud_pdfs)
 
 if total_pdf_count > 0:
     st.markdown(f"📊 **目前已鎖定講義總數：{total_pdf_count} 份**")
-    if selected_cloud_pdfs:
-        st.caption(f"☁️ 雲端講義：{', '.join(selected_cloud_pdfs)}")
-    if uploaded_pdfs:
-        st.caption(f"💻 本地講義：{', '.join([f.name for f in uploaded_pdfs])}")
+    if selected_cloud_pdfs: st.caption(f"☁️ 雲端講義：{', '.join(selected_cloud_pdfs)}")
+    if uploaded_pdfs: st.caption(f"💻 本地講義：{', '.join([f.name for f in uploaded_pdfs])}")
 
     st.subheader("📝 Step 2: 設定出題參數")
     col1, col2, col3 = st.columns(3)
@@ -184,11 +219,8 @@ if total_pdf_count > 0:
     if st.button("⚡ 開始全自動雙模融合出題 ⚡", use_container_width=True):
         try:
             with st.spinner("🧠 正在準備與同步雲端/本地講義檔案..."):
-                
-                # 建立要送給 Gemini 的檔案物件清單
                 gemini_file_objects = []
                 
-                # A. 處理本地上傳的 PDF
                 for pdf_file in uploaded_pdfs:
                     pdf_bytes = pdf_file.read()
                     gemini_file = client.files.upload(
@@ -197,7 +229,6 @@ if total_pdf_count > 0:
                     )
                     gemini_file_objects.append(gemini_file)
                 
-                # B. 處理勾選的 GitHub 雲端 PDF
                 for cloud_pdf_name in selected_cloud_pdfs:
                     c_bytes = fetch_cloud_pdf_bytes(cloud_pdf_name)
                     if c_bytes:
@@ -208,7 +239,6 @@ if total_pdf_count > 0:
                         gemini_file_objects.append(gemini_file)
 
             with st.spinner("🧠 AI 正在通盤研讀所有講義並為您精心設計題目中... 請稍候"):
-                # 智慧判斷頁數說明
                 range_instruction = f"精準鎖定這些 PDF 檔案中的【{page_range}】" if "整份" not in page_range and "全部" not in page_range else "「通盤掃描並融合這幾份 PDF 檔案」的完整內容，宏觀地在不同的講義、章節與核心觀念中平均分佈提取核心重點"
 
                 history_block = ""
@@ -241,7 +271,6 @@ if total_pdf_count > 0:
                     contents=contents_payload,
                 )
 
-                # 即時刪除雲端暫存
                 for g_file in gemini_file_objects: client.files.delete(name=g_file.name)
 
                 clean_response = response.text.strip()
@@ -259,8 +288,7 @@ if total_pdf_count > 0:
                 for idx, q in enumerate(raw_questions):
                     current_q_num = int(start_q_num) + idx
                     row_dict = {'題號': current_q_num, '題目內容': str(q.get('題目內容', '')).strip()}
-                    for lbl in opt_labels:
-                        row_dict[f'選項{lbl}'] = str(q.get(f'選項{lbl}', '')).strip()
+                    for lbl in opt_labels: row_dict[f'選項{lbl}'] = str(q.get(f'選項{lbl}', '')).strip()
                     
                     ans = str(q.get('正確答案', '')).upper().strip()
                     row_dict['正確答案'] = ans if ans in opt_labels else ""
@@ -268,14 +296,13 @@ if total_pdf_count > 0:
                     row_dict['出處'] = str(q.get('出處', '')).strip()
                     processed_rows.append(row_dict)
 
-                # ==================== 5. 產出 Excel 檔案二進位流 ====================
+                # ==================== 5. 產出 Excel ====================
                 excel_out = io.BytesIO()
                 pd.DataFrame(processed_rows).to_excel(excel_out, index=False)
                 excel_out.seek(0)
                 
                 wb = load_workbook(excel_out)
                 ws = wb.active
-                
                 col_widths = {'A': 8, 'B': 45, 'C': 30, 'D': 30, 'E': 30, 'F': 30, 'G': 30, 'H': 15, 'I': 60, 'J': 40}
                 for letter, width in col_widths.items(): ws.column_dimensions[letter].width = width
                 
@@ -298,7 +325,7 @@ if total_pdf_count > 0:
                 final_excel_bytes = io.BytesIO()
                 wb.save(final_excel_bytes)
 
-                # ==================== 6. 產出 Word 檔案二進位流 ====================
+                # ==================== 6. 產出 Word ====================
                 doc = Document()
                 sec = doc.sections[0]
                 sec.top_margin = sec.bottom_margin = sec.left_margin = sec.right_margin = Cm(1.27)
@@ -307,12 +334,10 @@ if total_pdf_count > 0:
                 doc.styles['Normal'].font.size = Pt(12)
                 
                 PURPLE, BLUE = RGBColor(112, 48, 160), RGBColor(0, 50, 150)
-
                 title_p = doc.add_paragraph()
                 title_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
                 run = title_p.add_run(exam_title)
-                run.bold = True
-                run.font.size = Pt(16)
+                run.bold, run.font.size = True, Pt(16)
 
                 for r in processed_rows:
                     doc.add_paragraph(f"{r['題號']}. {r['題目內容']}").paragraph_format.space_after = Pt(6)
@@ -353,7 +378,6 @@ if total_pdf_count > 0:
                 final_word_bytes = io.BytesIO()
                 doc.save(final_word_bytes)
 
-                # 資料安全鎖定至暫存狀態，防止下載刷新消失
                 st.session_state["generated_excel"] = final_excel_bytes.getvalue()
                 st.session_state["generated_word"] = final_word_bytes.getvalue()
                 st.session_state["saved_excel_filename"] = excel_filename
@@ -363,7 +387,7 @@ if total_pdf_count > 0:
             st.error(f"出題過程出錯：{e}")
             st.exception(e)
 
-    # ==================== 5. 獨立持久化渲染下載按鈕 ====================
+    # ==================== 5. 獨立下載按鈕 ====================
     if "generated_excel" in st.session_state and "generated_word" in st.session_state:
         st.success("🎉 題庫與試卷皆已設計完成！請在下方直接點擊下載原始檔案：")
         
