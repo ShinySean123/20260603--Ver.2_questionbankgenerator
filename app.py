@@ -4,9 +4,11 @@ import re
 import math
 import io
 import json
+import time      # 🌟 用於控制重試等待時間
+import random    # 🌟 用於加入隨機抖動，打散重試請求
 import urllib.request
 import urllib.parse
-import requests  # 🌟 用來取代 Google SDK 的底層直連套件
+import requests  
 import base64
 import fitz  # PyMuPDF 高畫質影像渲染引擎
 from openpyxl import load_workbook
@@ -22,8 +24,8 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 # 網頁配置
 st.set_page_config(page_title="AI 雲端講義題庫系統", page_icon="🧠", layout="centered")
 
-st.title("🧠 AI 雲端全自動題庫生成系統 (終極硬核通關版)")
-st.markdown("已啟動「純 HTTP 底層視覺直連技術」，徹底免疫所有 SDK 與伺服器環境憑證衝突！")
+st.title("🧠 AI 雲端全自動題庫生成系統 (高可用完全體)")
+st.markdown("內建【503 伺服器高負載自動重試防禦機制】，徹底保障出題成功率！")
 
 # ==================== 1. 🔑 API 金鑰設定面板 ====================
 env_key = ""
@@ -40,34 +42,48 @@ if not api_key:
     st.warning("⚠️ 請貼入您在 Google AI Studio 申請的 `AIzaSy` 金鑰。")
     st.stop()
 
-# ==================== 🌟 [核心重寫] 拋棄 SDK 的原生 HTTP 視覺直連函數 ====================
-def generate_content_via_http(contents_list, api_key):
-    """直接使用 HTTP POST 請求將圖片和 Prompt 送給 Gemini，100% 免疫 401 Bug"""
+# ==================== 🌟 [智能重試升級] 生產級 HTTP 視覺直連函數 ====================
+def generate_content_via_http_with_retry(contents_list, api_key, max_retries=4):
+    """
+    依據技術指南推薦：整合『指數退避』與『隨機抖動 (Jitter)』的終極直連函數。
+    完美對抗 Google 伺服器短暫的 503 High Demand 塞車。
+    """
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
     
+    # 封裝 Payload
     parts = []
     for item in contents_list:
         if isinstance(item, dict) and item.get("mime_type") == "image/jpeg":
-            # 將圖片轉成標準的 Base64 inlineData 格式
             b64_data = base64.b64encode(item["data"]).decode('utf-8')
-            parts.append({
-                "inlineData": {
-                    "mimeType": "image/jpeg",
-                    "data": b64_data
-                }
-            })
+            parts.append({"inlineData": {"mimeType": "image/jpeg", "data": b64_data}})
         else:
-            # 純文字段落（頁碼標籤與 Prompt）
             parts.append({"text": str(item)})
 
     payload = {"contents": [{"parts": parts}]}
     headers = {"Content-Type": "application/json"}
     
-    resp = requests.post(url, headers=headers, json=payload)
-    if resp.status_code != 200:
-        raise Exception(f"Google 門口回應錯誤 ({resp.status_code}): {resp.text}")
+    # 開始智能重試迴圈
+    for attempt in range(max_retries):
+        resp = requests.post(url, headers=headers, json=payload)
         
-    return resp.json()['candidates'][0]['content']['parts'][0]['text']
+        # 🟢 狀況一：成功通關
+        if resp.status_code == 200:
+            return resp.json()['candidates'][0]['content']['parts'][0]['text']
+            
+        # 🟡 狀況二：遇到 503 伺服器爆量大塞車
+        elif resp.status_code == 503:
+            if attempt < max_retries - 1:
+                # 指數退避公式：2s, 4s, 8s... 並加上 0~1 秒的隨機抖動，避免客戶端同步撞門
+                wait_time = (2 ** attempt) + random.uniform(0, 1)
+                st.warning(f"⏳ Google 伺服器爆量 (503) - 啟動指數退避，正在進行第 {attempt+1}/{max_retries} 次自動重試，等待 {wait_time:.1f} 秒...")
+                time.sleep(wait_time)
+                continue
+            else:
+                raise Exception(f"Google 門口持續 503 塞車，已自動重試 {max_retries} 次皆失敗，建議稍等幾分鐘或縮小出題範圍。")
+                
+        # 🔴 狀況三：其他非 503 錯誤
+        else:
+            raise Exception(f"Google 門口回應錯誤 ({resp.status_code}): {resp.text}")
 
 # ==================== 2. 🗂️ GitHub 自動資料夾掃描 ====================
 GITHUB_USER = "ShinySean123"
@@ -204,12 +220,11 @@ if total_pdf_count > 0:
     exam_title = str(exam_title_input) if exam_title_input else "測驗題庫"
     excel_filename = str(excel_filename_input) if excel_filename_input else "精修題庫"
 
-    # ==================== 4. AI 出題核心 (純 HTTP 視覺版) ====================
+    # ==================== 4. AI 出題核心 ====================
     if st.button("⚡ 開始全自動雙模融合出題 ⚡", use_container_width=True):
         try:
             contents_payload = []
             
-            # 將 PDF 轉化為一頁一頁的高畫質圖片並壓入 payload 陣列
             def process_pdf_to_images(pdf_bytes, pdf_name):
                 doc = fitz.open(stream=pdf_bytes, filetype="pdf")
                 for i in range(len(doc)):
@@ -219,10 +234,7 @@ if total_pdf_count > 0:
                     img_data = pix.tobytes("jpeg")
                     
                     contents_payload.append(f"=== 【{pdf_name}】第 {i+1} 頁 ===")
-                    contents_payload.append({
-                        "mime_type": "image/jpeg",
-                        "data": img_data
-                    })
+                    contents_payload.append({"mime_type": "image/jpeg", "data": img_data})
 
             with st.spinner("📷 正在啟動虛擬掃描機，為講義與醫療圖表進行高畫質轉碼..."):
                 for pdf_file in uploaded_pdfs:
@@ -232,7 +244,7 @@ if total_pdf_count > 0:
                     if c_bytes:
                         process_pdf_to_images(c_bytes, cloud_pdf_name)
 
-            with st.spinner("🧠 影像裝載完成！AI 正在繞過 SDK 憑證限制、直接研讀圖文出題中... 請稍候"):
+            with st.spinner("🧠 影像裝載完成！AI 正在全力研讀圖文並智慧化設計考題中..."):
                 range_instruction = f"精準鎖定這些影像中的【{page_range}】" if "整份" not in page_range and "全部" not in page_range else "「通盤掃描並融合這幾份講義影像」的完整內容，宏觀地在不同的章節與圖表中提取重點"
 
                 history_block = ""
@@ -260,8 +272,8 @@ if total_pdf_count > 0:
 
                 contents_payload.append(prompt)
 
-                # 🚀 呼叫無 SDK 裸連硬核發送函數
-                clean_response = generate_content_via_http(contents_payload, api_key)
+                # 🚀 呼叫升級版：內建 503 自動防禦指數重試引擎
+                clean_response = generate_content_via_http_with_retry(contents_payload, api_key)
                 
                 if clean_response.startswith("```json"):
                     clean_response = clean_response.split("```json")[1].split("```")[0].strip()
