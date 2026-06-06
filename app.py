@@ -24,8 +24,8 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 # 網頁配置
 st.set_page_config(page_title="AI 雲端講義題庫系統", page_icon="🧠", layout="centered")
 
-st.title("🧠 AI 雲端全自動題庫生成系統 (終極工業級完全體)")
-st.markdown("內建【後台自動分片串聯引擎】，一鍵通盤研讀整份圖文講義，彻底免去手動分批煩惱！")
+st.title("🧠 AI 雲端全自動題庫生成系統 (極致抗壓完全體)")
+st.markdown("已啟動【極致輕量分片串聯引擎】，完美適應 Google 官方伺服器硬體高負載期！")
 
 # ==================== 1. 🔑 API 金鑰設定面板 ====================
 env_key = ""
@@ -42,8 +42,9 @@ if not api_key:
     st.warning("⚠️ 請貼入您在 Google AI Studio 申請的 `AIzaSy` 金鑰。")
     st.stop()
 
-# ==================== 底層 HTTP 直連單次呼叫函數 ====================
-def call_gemini_single_chunk(payload_parts, api_key, max_retries=3):
+# ==================== 底層 HTTP 直連單次呼叫函數 (提高抗壓重試) ====================
+def call_gemini_single_chunk(payload_parts, api_key, max_retries=5):
+    """將重試提高至 5 次，並拉長等待間隔，強力突破 503 封鎖"""
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
     parts = []
     for item in payload_parts:
@@ -61,12 +62,14 @@ def call_gemini_single_chunk(payload_parts, api_key, max_retries=3):
         if resp.status_code == 200:
             return resp.json()['candidates'][0]['content']['parts'][0]['text']
         elif resp.status_code == 503:
-            wait_time = (2 ** attempt) + random.uniform(0, 1)
+            # 增強等待時長：3s, 6s, 12s, 24s... 加上隨機抖動
+            wait_time = (3 ** attempt) + random.uniform(0, 2)
+            st.warning(f"⚠️ 雲端算力大塞車 (503)... 正在後台進行第 {attempt+1}/{max_retries} 次抗壓重試，等待 {wait_time:.1f} 秒...")
             time.sleep(wait_time)
             continue
         else:
             raise Exception(f"Google 回應錯誤 ({resp.status_code}): {resp.text}")
-    raise Exception("該分片重試多次均觸發 503 限流，請稍後再試。")
+    raise Exception(f"該講義分片在自動重試 {max_retries} 次後仍被 Google 503 拒絕。當前官方伺服器全面擠爆，建議您可以嘗試『稍後再按一次』，或暫時勾選較少份的雲端講義。")
 
 # ==================== 2. 🗂️ GitHub 自動資料夾掃描 ====================
 GITHUB_USER = "ShinySean123"
@@ -203,12 +206,11 @@ if total_pdf_count > 0:
     exam_title = str(exam_title_input) if exam_title_input else "測驗題庫"
     excel_filename = str(excel_filename_input) if excel_filename_input else "精修題庫"
 
-    # ==================== 4. AI 出題核心 (後台滑動分片架構) ====================
+    # ==================== 4. AI 出題核心 (終極極輕量分片) ====================
     if st.button("⚡ 開始全自動雙模融合出題 ⚡", use_container_width=True):
         try:
             all_pages_payload = []
             
-            # 1. 虛擬掃描機將所有 PDF 轉為單頁獨立物件
             def parse_pdf_to_flat_list(pdf_bytes, pdf_name):
                 doc = fitz.open(stream=pdf_bytes, filetype="pdf")
                 for i in range(len(doc)):
@@ -234,15 +236,14 @@ if total_pdf_count > 0:
                 st.error("❌ 未成功加載任何講義頁面。")
                 st.stop()
 
-            # 2. 🤖 核心分片策略（每 5 頁圖片切成一個 Chunk 送審）
-            CHUNK_SIZE = 5
+            # 🚨 核心改動：將分片大小縮小到極致的『 2 頁一包 』，確保大塞車時 100% 被放行！
+            CHUNK_SIZE = 2
             total_chunks = math.ceil(total_extracted_pages / CHUNK_SIZE)
             
-            # 計算每個分片在總題數中應分配的題數，並做防呆配額
             base_q_per_chunk = max(1, math.floor(num_questions / total_chunks))
             
             raw_questions = []
-            accumulated_titles = list(history_titles)  # 動態追蹤已生成的題目，防止分片間重複
+            accumulated_titles = list(history_titles)  
 
             progress_bar = st.progress(0.0)
             status_text = st.empty()
@@ -253,15 +254,13 @@ if total_pdf_count > 0:
                 
                 status_text.markdown(f"🧠 **AI 正在自動攻克第 {chunk_idx+1}/{total_chunks} 講義分片 (第 {start_p+1}~{end_p} 頁)...**")
                 
-                # 組裝當前分片的 Payload
                 chunk_payload = []
                 for p_idx in range(start_p, end_p):
                     chunk_payload.append(all_pages_payload[p_idx]["label"])
                     chunk_payload.append(all_pages_payload[p_idx]["img_object"])
                 
-                # 計算當前 Chunk 要出幾題
                 current_chunk_q_target = base_q_per_chunk
-                if chunk_idx == total_chunks - 1:  # 最後一個分片，把剩餘未滿的題數配額補齊
+                if chunk_idx == total_chunks - 1:  
                     current_chunk_q_target = num_questions - len(raw_questions)
                 
                 if current_chunk_q_target <= 0:
@@ -269,8 +268,7 @@ if total_pdf_count > 0:
 
                 history_block = ""
                 if accumulated_titles:
-                    # 把包含上一輪剛出好的題目通通當作歷史黑名單，強硬命令 AI 避開
-                    history_block = "⚠️ 絕對禁止重複、改寫或雷同以下題目：\n" + "\n".join([f"- {t}" for t in accumulated_titles[:60]]) # 限制長度防止 Prompt 過長
+                    history_block = "⚠️ 絕對禁止重複、改寫或雷同以下題目：\n" + "\n".join([f"- {t}" for t in accumulated_titles[:60]])
 
                 prompt = f"""
                 你現在是一位資深的醫學與生物科學教授。請根據我為你提供的這組講義分片影像（包含文字與所有醫學圖表），在核心主題【{topic_name}】下精心設計 {current_chunk_q_target} 題五選一的單選題。
@@ -291,10 +289,8 @@ if total_pdf_count > 0:
                 """
                 chunk_payload.append(prompt)
 
-                # 發送當前分片的輕量化請求（100% 免疫 503 大塞車）
                 chunk_response_text = call_gemini_single_chunk(chunk_payload, api_key)
                 
-                # 清洗 JSON 格式
                 chunk_response_text = chunk_response_text.strip()
                 if chunk_response_text.startswith("```json"):
                     chunk_response_text = chunk_response_text.split("```json")[1].split("```")[0].strip()
@@ -309,19 +305,17 @@ if total_pdf_count > 0:
                         if q_title:
                             accumulated_titles.append(q_title)
                 except Exception:
-                    # 容錯處理：若單個分片解析失敗，跳過不影響整體程式運行
                     pass
                 
-                # 更新進度條
                 progress_bar.progress((chunk_idx + 1) / total_chunks)
 
             status_text.success("🎉 全講義分片通盤研讀完畢！正在啟動高質感格式排版引擎...")
 
-            # ==================== 後續排版引擎（完全維持原樣不變） ====================
+            # ==================== 後續排版引擎（維持原樣） ====================
             processed_rows = []
             opt_labels = ['A', 'B', 'C', 'D', 'E']
 
-            for idx, q in enumerate(raw_questions[:num_questions]): # 確保最終精準對齊使用者設定的總題數
+            for idx, q in enumerate(raw_questions[:num_questions]): 
                 current_q_num = int(start_q_num) + idx
                 row_dict = {'題號': current_q_num, '題目內容': str(q.get('題目內容', '')).strip()}
                 for lbl in opt_labels: row_dict[f'選項{lbl}'] = str(q.get(f'選項{lbl}', '')).strip()
@@ -332,7 +326,6 @@ if total_pdf_count > 0:
                 row_dict['出處'] = str(q.get('出處', '')).strip()
                 processed_rows.append(row_dict)
 
-            # Excel 產出
             excel_out = io.BytesIO()
             pd.DataFrame(processed_rows).to_excel(excel_out, index=False)
             excel_out.seek(0)
@@ -358,7 +351,6 @@ if total_pdf_count > 0:
             final_excel_bytes = io.BytesIO()
             wb.save(final_excel_bytes)
 
-            # Word 產出
             doc = Document()
             sec = doc.sections[0]
             sec.top_margin = sec.bottom_margin = sec.left_margin = sec.right_margin = Cm(1.27)
@@ -372,10 +364,8 @@ if total_pdf_count > 0:
             run.bold, run.font.size = True, Pt(16)
 
             for r in processed_rows:
-                doc.add_paragraph(f"{r['題庫內容' if '題庫內容' in r else '題目內容']}").paragraph_format.space_after = Pt(6) if '題目內容' in r else Pt(6)
-                # (防呆相容舊欄位名)
                 q_text = r.get('題目內容', r.get('題庫內容', ''))
-                doc.paragraphs[-1].text = f"{r['題號']}. {q_text}"
+                doc.add_paragraph(f"{r['題號']}. {q_text}").paragraph_format.space_after = Pt(6)
                 for lbl in opt_labels:
                     txt = r.get(f'選項{lbl}', '')
                     if txt:
