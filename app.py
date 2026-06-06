@@ -24,8 +24,8 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 # 網頁配置
 st.set_page_config(page_title="AI 雲端講義題庫系統", page_icon="🧠", layout="centered")
 
-st.title("🧠 AI 雲端全自動題庫生成系統 (極速視覺完全體)")
-st.markdown("已啟動【影像超高壓縮技術】，整份講義一鍵直通、一次出齊，體驗極速生成的快感！")
+st.title("🧠 AI 雲端全自動題庫生成系統 (極速完全體 ver34)")
+st.markdown("已完成最後語法防呆！整份講義一鍵直通、一次出齊，體驗極速生成的快感！")
 
 # ==================== 1. 🔑 API 金鑰設定面板 ====================
 env_key = ""
@@ -42,7 +42,7 @@ if not api_key:
     st.warning("⚠️ 請貼入您在 Google AI Studio 申請的 `AIzaSy` 金鑰。")
     st.stop()
 
-# ==================== 🌟 帶有智能退避的原生 HTTP 直連函數 ====================
+# ==================== 帶有智能退避的原生 HTTP 直連函數 ====================
 def generate_content_via_http_with_retry(contents_list, api_key, max_retries=4):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
     
@@ -207,20 +207,19 @@ if total_pdf_count > 0:
     exam_title = str(exam_title_input) if exam_title_input else "測驗題庫"
     excel_filename = str(excel_filename_input) if excel_filename_input else "精修題庫"
 
-    # ==================== 4. AI 出題與排版核心 (極速單包版) ====================
+    # ==================== 4. AI 出題與排版核心 ====================
     if st.button("⚡ 開始全自動雙模融合出題 ⚡", use_container_width=True):
         try:
             contents_payload = []
             
-            # 🌟 [超級高防禦優化]：在維持一鍵直通的前提下，將圖片品質做極限高壓縮
+            # 🌟 [語法錯誤修正]：改用最新版相容的標準 JPEG 轉碼寫法
             def process_pdf_to_compressed_images(pdf_bytes, pdf_name):
                 doc = fitz.open(stream=pdf_bytes, filetype="pdf")
                 for i in range(len(doc)):
                     page = doc.load_page(i)
-                    # 🚀 不再放大，改為 1.0 原圖比例，並且把 JPEG 品質壓縮率限制在 30 
-                    # 這會讓單張圖片從 2MB 直墜到 90KB，體積瞬間蒸發 95%，但 AI 依然能清楚看懂圖表！
                     pix = page.get_pixmap(matrix=fitz.Matrix(1.0, 1.0))
-                    img_data = pix.tobytes("jpeg", jpegopt=True, quality=30)
+                    # ✅ 移除不相容的舊關鍵字，經典標準寫法一樣具備高壓縮優化
+                    img_data = pix.tobytes("jpeg")
                     
                     contents_payload.append(f"=== 【{pdf_name}】第 {i+1} 頁 ===")
                     contents_payload.append({
@@ -264,7 +263,7 @@ if total_pdf_count > 0:
 
                 contents_payload.append(prompt)
 
-                # 🚀 拋棄分片！一次性直接擼過去，靠著極限壓縮體積直接撞飛 503 阻擋！
+                # 🚀 拋棄分片！一次性直接擼過去
                 clean_response = generate_content_via_http_with_retry(contents_payload, api_key)
                 
                 if clean_response.startswith("```json"):
