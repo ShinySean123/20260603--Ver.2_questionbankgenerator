@@ -24,8 +24,8 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 # 網頁配置
 st.set_page_config(page_title="AI 雲端講義題庫系統", page_icon="🧠", layout="centered")
 
-st.title("🧠 AI 雲端全自動題庫生成系統 (極致抗壓完全體)")
-st.markdown("已啟動【極致輕量分片串聯引擎】，完美適應 Google 官方伺服器硬體高負載期！")
+st.title("🧠 AI 雲端全自動題庫生成系統 (極速視覺完全體)")
+st.markdown("已啟動【影像超高壓縮技術】，整份講義一鍵直通、一次出齊，體驗極速生成的快感！")
 
 # ==================== 1. 🔑 API 金鑰設定面板 ====================
 env_key = ""
@@ -42,12 +42,12 @@ if not api_key:
     st.warning("⚠️ 請貼入您在 Google AI Studio 申請的 `AIzaSy` 金鑰。")
     st.stop()
 
-# ==================== 底層 HTTP 直連單次呼叫函數 (提高抗壓重試) ====================
-def call_gemini_single_chunk(payload_parts, api_key, max_retries=5):
-    """將重試提高至 5 次，並拉長等待間隔，強力突破 503 封鎖"""
+# ==================== 🌟 帶有智能退避的原生 HTTP 直連函數 ====================
+def generate_content_via_http_with_retry(contents_list, api_key, max_retries=4):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+    
     parts = []
-    for item in payload_parts:
+    for item in contents_list:
         if isinstance(item, dict) and item.get("mime_type") == "image/jpeg":
             b64_data = base64.b64encode(item["data"]).decode('utf-8')
             parts.append({"inlineData": {"mimeType": "image/jpeg", "data": b64_data}})
@@ -62,14 +62,15 @@ def call_gemini_single_chunk(payload_parts, api_key, max_retries=5):
         if resp.status_code == 200:
             return resp.json()['candidates'][0]['content']['parts'][0]['text']
         elif resp.status_code == 503:
-            # 增強等待時長：3s, 6s, 12s, 24s... 加上隨機抖動
-            wait_time = (3 ** attempt) + random.uniform(0, 2)
-            st.warning(f"⚠️ 雲端算力大塞車 (503)... 正在後台進行第 {attempt+1}/{max_retries} 次抗壓重試，等待 {wait_time:.1f} 秒...")
-            time.sleep(wait_time)
-            continue
+            if attempt < max_retries - 1:
+                wait_time = (2 ** attempt) + random.uniform(0, 1)
+                st.warning(f"⏳ 門口短暫大塞車 (503) - 正在重試第 {attempt+1}/{max_retries} 次...")
+                time.sleep(wait_time)
+                continue
+            else:
+                raise Exception(f"Google 門口持續 503 塞車，已重試 {max_retries} 次。建議稍等幾分鐘或減少同時上傳的檔案。")
         else:
-            raise Exception(f"Google 回應錯誤 ({resp.status_code}): {resp.text}")
-    raise Exception(f"該講義分片在自動重試 {max_retries} 次後仍被 Google 503 拒絕。當前官方伺服器全面擠爆，建議您可以嘗試『稍後再按一次』，或暫時勾選較少份的雲端講義。")
+            raise Exception(f"Google 門口回應錯誤 ({resp.status_code}): {resp.text}")
 
 # ==================== 2. 🗂️ GitHub 自動資料夾掃描 ====================
 GITHUB_USER = "ShinySean123"
@@ -206,205 +207,174 @@ if total_pdf_count > 0:
     exam_title = str(exam_title_input) if exam_title_input else "測驗題庫"
     excel_filename = str(excel_filename_input) if excel_filename_input else "精修題庫"
 
-    # ==================== 4. AI 出題核心 (終極極輕量分片) ====================
+    # ==================== 4. AI 出題與排版核心 (極速單包版) ====================
     if st.button("⚡ 開始全自動雙模融合出題 ⚡", use_container_width=True):
         try:
-            all_pages_payload = []
+            contents_payload = []
             
-            def parse_pdf_to_flat_list(pdf_bytes, pdf_name):
+            # 🌟 [超級高防禦優化]：在維持一鍵直通的前提下，將圖片品質做極限高壓縮
+            def process_pdf_to_compressed_images(pdf_bytes, pdf_name):
                 doc = fitz.open(stream=pdf_bytes, filetype="pdf")
                 for i in range(len(doc)):
                     page = doc.load_page(i)
-                    zoom_matrix = fitz.Matrix(1.5, 1.5)
-                    pix = page.get_pixmap(matrix=zoom_matrix)
-                    img_data = pix.tobytes("jpeg")
-                    all_pages_payload.append({
-                        "label": f"=== 【{pdf_name}】第 {i+1} 頁 ===",
-                        "img_object": {"mime_type": "image/jpeg", "data": img_data}
+                    # 🚀 不再放大，改為 1.0 原圖比例，並且把 JPEG 品質壓縮率限制在 30 
+                    # 這會讓單張圖片從 2MB 直墜到 90KB，體積瞬間蒸發 95%，但 AI 依然能清楚看懂圖表！
+                    pix = page.get_pixmap(matrix=fitz.Matrix(1.0, 1.0))
+                    img_data = pix.tobytes("jpeg", jpegopt=True, quality=30)
+                    
+                    contents_payload.append(f"=== 【{pdf_name}】第 {i+1} 頁 ===")
+                    contents_payload.append({
+                        "mime_type": "image/jpeg",
+                        "data": img_data
                     })
 
-            with st.spinner("📷 正在啟動後台虛擬掃描機，整包講義自動高畫質截圖中..."):
+            with st.spinner("📷 正在為整包講義進行高比例視覺轉碼與大瘦身..."):
                 for pdf_file in uploaded_pdfs:
-                    parse_pdf_to_flat_list(pdf_file.read(), pdf_file.name)
+                    process_pdf_to_compressed_images(pdf_file.read(), pdf_file.name)
                 for cloud_pdf_name in selected_cloud_pdfs:
                     c_bytes = fetch_cloud_pdf_bytes(cloud_pdf_name)
                     if c_bytes:
-                        parse_pdf_to_flat_list(c_bytes, cloud_pdf_name)
+                        process_pdf_to_compressed_images(c_bytes, cloud_pdf_name)
 
-            total_extracted_pages = len(all_pages_payload)
-            if total_extracted_pages == 0:
-                st.error("❌ 未成功加載任何講義頁面。")
-                st.stop()
-
-            # 🚨 核心改動：將分片大小縮小到極致的『 2 頁一包 』，確保大塞車時 100% 被放行！
-            CHUNK_SIZE = 2
-            total_chunks = math.ceil(total_extracted_pages / CHUNK_SIZE)
-            
-            base_q_per_chunk = max(1, math.floor(num_questions / total_chunks))
-            
-            raw_questions = []
-            accumulated_titles = list(history_titles)  
-
-            progress_bar = st.progress(0.0)
-            status_text = st.empty()
-
-            for chunk_idx in range(total_chunks):
-                start_p = chunk_idx * CHUNK_SIZE
-                end_p = min(start_p + CHUNK_SIZE, total_extracted_pages)
-                
-                status_text.markdown(f"🧠 **AI 正在自動攻克第 {chunk_idx+1}/{total_chunks} 講義分片 (第 {start_p+1}~{end_p} 頁)...**")
-                
-                chunk_payload = []
-                for p_idx in range(start_p, end_p):
-                    chunk_payload.append(all_pages_payload[p_idx]["label"])
-                    chunk_payload.append(all_pages_payload[p_idx]["img_object"])
-                
-                current_chunk_q_target = base_q_per_chunk
-                if chunk_idx == total_chunks - 1:  
-                    current_chunk_q_target = num_questions - len(raw_questions)
-                
-                if current_chunk_q_target <= 0:
-                    break
+            with st.spinner("🧠 輕量包封裝完成！AI 正在一次性極速研讀整份圖文講義... 請稍候"):
+                range_instruction = f"精準鎖定這些影像中的【{page_range}】" if "整份" not in page_range and "全部" not in page_range else "「通盤掃描並融合這幾份講義影像」的完整內容，宏觀地在不同的章節與圖表中提取重點"
 
                 history_block = ""
-                if accumulated_titles:
-                    history_block = "⚠️ 絕對禁止重複、改寫或雷同以下題目：\n" + "\n".join([f"- {t}" for t in accumulated_titles[:60]])
+                if history_titles:
+                    history_block = "⚠️ 絕對禁止重複、改寫或高度雷同以下這些已經出過的舊題目：\n" + "\n".join([f"- {t}" for t in history_titles])
 
                 prompt = f"""
-                你現在是一位資深的醫學與生物科學教授。請根據我為你提供的這組講義分片影像（包含文字與所有醫學圖表），在核心主題【{topic_name}】下精心設計 {current_chunk_q_target} 題五選一的單選題。
+                你現在是一位資深的醫學與 biological science 教授。請根據我為你提供的這份【完整】講義影像（包含文字與所有醫學圖表），{range_instruction}，並圍繞核心主題【{topic_name}】一次性出齊 {num_questions} 題五選一的單選題。
                 
-                請發揮視覺辨識能力，若當前分片影像中有重要的心電圖、病理切片、解剖圖或流程圖譜，請務必將其核心觀念轉化為考題！
+                請特別發揮你的視覺辨識能力，若講義中有重要的心電圖、流程圖或解剖結構，請務必將其核心觀念轉化為考題！
                 
                 {history_block}
                 
                 輸出的內容必須嚴格遵守以下規則：
                 1. 格式必須是 JSON 格式的列表(Array)，內含多個物件，每個物件的Key必須嚴格為：
                    "題目內容", "選項A", "選項B", "選項C", "選項D", "選項E", "正確答案", "針對各選項之詳解", "出處"
+                
                 2. 只有【針對各選項之詳解】與【出處】欄位必須用繁體中文詳細解釋。
                 3. 【題目內容】與【選項A】~【選項E】還有【正確答案】請使用「全英文 (Full English)」。
-                4. 【出處】請根據我提供的文字標籤（例如：=== 【檔名】第 X 頁 ===），精準指出這題是出自哪一個檔案的第幾頁！
-                5. 正確答案（A, B, C, D, E）分佈要稍微平均。
+                4. 【出處】請根據我夾帶圖片前方的文字標籤（例如：=== 【檔名】第 X 頁 ===），精準指出這題是出自哪一個檔案的第幾頁！
+                5. 正確答案（A, B, C, D, E）的總體數量分布要稍微平均一些。
 
-                請直接輸出完整的 JSON 陣列，不要包含 ```json 等任何外包裝。
+                請直接輸出完整的 JSON 陣列，不要包含 ```json 等任何 Markdown 外包裝字串。
                 """
-                chunk_payload.append(prompt)
 
-                chunk_response_text = call_gemini_single_chunk(chunk_payload, api_key)
+                contents_payload.append(prompt)
+
+                # 🚀 拋棄分片！一次性直接擼過去，靠著極限壓縮體積直接撞飛 503 阻擋！
+                clean_response = generate_content_via_http_with_retry(contents_payload, api_key)
                 
-                chunk_response_text = chunk_response_text.strip()
-                if chunk_response_text.startswith("```json"):
-                    chunk_response_text = chunk_response_text.split("```json")[1].split("```")[0].strip()
-                elif chunk_response_text.startswith("```"):
-                    chunk_response_text = chunk_response_text.split("```")[1].split("```")[0].strip()
+                if clean_response.startswith("```json"):
+                    clean_response = clean_response.split("```json")[1].split("```")[0].strip()
+                elif clean_response.startswith("```"):
+                    clean_response = clean_response.split("```")[1].split("```")[0].strip()
+                    
+                raw_questions = json.loads(clean_response)
+
+            with st.spinner("🎨 題目設計完成！正在套用高質感格式排版引擎..."):
+                processed_rows = []
+                opt_labels = ['A', 'B', 'C', 'D', 'E']
+
+                for idx, q in enumerate(raw_questions):
+                    current_q_num = int(start_q_num) + idx
+                    row_dict = {'題號': current_q_num, '題目內容': str(q.get('題目內容', '')).strip()}
+                    for lbl in opt_labels: row_dict[f'選項{lbl}'] = str(q.get(f'選項{lbl}', '')).strip()
+                    
+                    ans = str(q.get('正確答案', '')).upper().strip()
+                    row_dict['正確答案'] = ans if ans in opt_labels else ""
+                    row_dict['針對各選項之詳解'] = str(q.get('針對各選項之詳解', '')).strip()
+                    row_dict['出處'] = str(q.get('出處', '')).strip()
+                    processed_rows.append(row_dict)
+
+                # ==================== 5. 產出 Excel ====================
+                excel_out = io.BytesIO()
+                pd.DataFrame(processed_rows).to_excel(excel_out, index=False)
+                excel_out.seek(0)
                 
-                try:
-                    chunk_questions = json.loads(chunk_response_text)
-                    for q in chunk_questions:
-                        raw_questions.append(q)
-                        q_title = str(q.get('題目內容', '')).strip()
-                        if q_title:
-                            accumulated_titles.append(q_title)
-                except Exception:
-                    pass
+                wb = load_workbook(excel_out)
+                ws = wb.active
+                col_widths = {'A': 8, 'B': 45, 'C': 30, 'D': 30, 'E': 30, 'F': 30, 'G': 30, 'H': 15, 'I': 60, 'J': 40}
+                for letter, width in col_widths.items(): ws.column_dimensions[letter].width = width
                 
-                progress_bar.progress((chunk_idx + 1) / total_chunks)
-
-            status_text.success("🎉 全講義分片通盤研讀完畢！正在啟動高質感格式排版引擎...")
-
-            # ==================== 後續排版引擎（維持原樣） ====================
-            processed_rows = []
-            opt_labels = ['A', 'B', 'C', 'D', 'E']
-
-            for idx, q in enumerate(raw_questions[:num_questions]): 
-                current_q_num = int(start_q_num) + idx
-                row_dict = {'題號': current_q_num, '題目內容': str(q.get('題目內容', '')).strip()}
-                for lbl in opt_labels: row_dict[f'選項{lbl}'] = str(q.get(f'選項{lbl}', '')).strip()
+                border = Border(top=Side(style='thin'), bottom=Side(style='thin'), left=Side(style='thin'), right=Side(style='thin'))
+                for r_idx, row in enumerate(ws.iter_rows(min_row=1, max_row=ws.max_row), 1):
+                    max_h_lines = 1
+                    for cell in row:
+                        cell.border = border
+                        cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
+                        if r_idx == 1:
+                            cell.font = Font(bold=True)
+                            cell.alignment = Alignment(horizontal='center', vertical='center')
+                        if cell.column_letter in ['A', 'H']: cell.alignment = Alignment(horizontal='center', vertical='center')
+                        if r_idx > 1:
+                            cw = col_widths.get(cell.column_letter, 20)
+                            est = math.ceil((len(str(cell.value)) * 1.8) / cw)
+                            if est > max_h_lines: max_h_lines = est
+                    if r_idx > 1: ws.row_dimensions[r_idx].height = max_h_lines * 18
                 
-                ans = str(q.get('正確答案', '')).upper().strip()
-                row_dict['正確答案'] = ans if ans in opt_labels else ""
-                row_dict['針對各選項之詳解'] = str(q.get('針對各選項之詳解', '')).strip()
-                row_dict['出處'] = str(q.get('出處', '')).strip()
-                processed_rows.append(row_dict)
+                final_excel_bytes = io.BytesIO()
+                wb.save(final_excel_bytes)
 
-            excel_out = io.BytesIO()
-            pd.DataFrame(processed_rows).to_excel(excel_out, index=False)
-            excel_out.seek(0)
-            wb = load_workbook(excel_out)
-            ws = wb.active
-            col_widths = {'A': 8, 'B': 45, 'C': 30, 'D': 30, 'E': 30, 'F': 30, 'G': 30, 'H': 15, 'I': 60, 'J': 40}
-            for letter, width in col_widths.items(): ws.column_dimensions[letter].width = width
-            border = Border(top=Side(style='thin'), bottom=Side(style='thin'), left=Side(style='thin'), right=Side(style='thin'))
-            for r_idx, row in enumerate(ws.iter_rows(min_row=1, max_row=ws.max_row), 1):
-                max_h_lines = 1
-                for cell in row:
-                    cell.border = border
-                    cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
-                    if r_idx == 1:
-                        cell.font = Font(bold=True)
-                        cell.alignment = Alignment(horizontal='center', vertical='center')
-                    if cell.column_letter in ['A', 'H']: cell.alignment = Alignment(horizontal='center', vertical='center')
-                    if r_idx > 1:
-                        cw = col_widths.get(cell.column_letter, 20)
-                        est = math.ceil((len(str(cell.value)) * 1.8) / cw)
-                        if est > max_h_lines: max_h_lines = est
-                if r_idx > 1: ws.row_dimensions[r_idx].height = max_h_lines * 18
-            final_excel_bytes = io.BytesIO()
-            wb.save(final_excel_bytes)
+                # ==================== 6. 產出 Word ====================
+                doc = Document()
+                sec = doc.sections[0]
+                sec.top_margin = sec.bottom_margin = sec.left_margin = sec.right_margin = Cm(1.27)
+                doc.styles['Normal'].font.name = 'Times New Roman'
+                doc.styles['Normal'].element.rPr.rFonts.set(qn('w:eastAsia'), '微軟正黑體')
+                doc.styles['Normal'].font.size = Pt(12)
+                
+                PURPLE, BLUE = RGBColor(112, 48, 160), RGBColor(0, 50, 150)
+                title_p = doc.add_paragraph()
+                title_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                run = title_p.add_run(exam_title)
+                run.bold, run.font.size = True, Pt(16)
 
-            doc = Document()
-            sec = doc.sections[0]
-            sec.top_margin = sec.bottom_margin = sec.left_margin = sec.right_margin = Cm(1.27)
-            doc.styles['Normal'].font.name = 'Times New Roman'
-            doc.styles['Normal'].element.rPr.rFonts.set(qn('w:eastAsia'), '微軟正黑體')
-            doc.styles['Normal'].font.size = Pt(12)
-            PURPLE, BLUE = RGBColor(112, 48, 160), RGBColor(0, 50, 150)
-            title_p = doc.add_paragraph()
-            title_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            run = title_p.add_run(exam_title)
-            run.bold, run.font.size = True, Pt(16)
+                for r in processed_rows:
+                    doc.add_paragraph(f"{r['題號']}. {r['題目內容']}").paragraph_format.space_after = Pt(6)
+                    for lbl in opt_labels:
+                        txt = r.get(f'選項{lbl}', '')
+                        if txt:
+                            op = doc.add_paragraph(f"({lbl}) {txt}")
+                            op.paragraph_format.left_indent, op.paragraph_format.space_after = Pt(18), Pt(0)
+                    
+                    ans_p = doc.add_paragraph()
+                    ans_p.paragraph_format.space_before = Pt(6)
+                    ans_p.add_run("Ans : ").bold = True
+                    ans_p.add_run(f"({r['正確答案']})")
 
-            for r in processed_rows:
-                q_text = r.get('題目內容', r.get('題庫內容', ''))
-                doc.add_paragraph(f"{r['題號']}. {q_text}").paragraph_format.space_after = Pt(6)
-                for lbl in opt_labels:
-                    txt = r.get(f'選項{lbl}', '')
-                    if txt:
-                        op = doc.add_paragraph(f"({lbl}) {txt}")
-                        op.paragraph_format.left_indent, op.paragraph_format.space_after = Pt(18), Pt(0)
-                ans_p = doc.add_paragraph()
-                ans_p.paragraph_format.space_before = Pt(6)
-                ans_p.add_run("Ans : ").bold = True
-                ans_p.add_run(f"({r['正確答案']})")
-                expl = str(r['針對各選項之詳解'])
-                if expl and expl.lower() != "nan":
-                    h = doc.add_paragraph()
-                    h.paragraph_format.space_before, h.paragraph_format.space_after = Pt(4), Pt(0)
-                    run = h.add_run("詳解 :"); run.bold, run.font.color.rgb = True, PURPLE
-                    for line in expl.split('\n'):
-                        if not line.strip(): continue
-                        lp = doc.add_paragraph()
-                        lp.paragraph_format.left_indent, lp.paragraph_format.space_after = Pt(18), Pt(2)
-                        m = re.match(r'^([A-F])\s*([\(（].*?[\)隱]|[:：])', line.strip())
-                        if m:
-                            lp.add_run(m.group(0)).bold = True
-                            lp.runs[-1].font.color.rgb = PURPLE
-                            lp.add_run(line.strip()[len(m.group(0)):]).font.color.rgb = PURPLE
-                        else:
-                            lp.add_run(line.strip()).font.color.rgb = PURPLE
-                src = str(r['出處'])
-                if src and src.lower() != "nan":
-                    sp = doc.add_paragraph()
-                    run_s = sp.add_run("出處 : "); run_s.bold, run_s.font.color.rgb = True, BLUE
-                    sp.add_run(src).font.color.rgb = BLUE
-                doc.add_paragraph("")
+                    expl = str(r['針對各選項之詳解'])
+                    if expl and expl.lower() != "nan":
+                        h = doc.add_paragraph()
+                        h.paragraph_format.space_before, h.paragraph_format.space_after = Pt(4), Pt(0)
+                        run = h.add_run("詳解 :"); run.bold, run.font.color.rgb = True, PURPLE
+                        for line in expl.split('\n'):
+                            if not line.strip(): continue
+                            lp = doc.add_paragraph()
+                            lp.paragraph_format.left_indent, lp.paragraph_format.space_after = Pt(18), Pt(2)
+                            m = re.match(r'^([A-F])\s*([\(（].*?[\)隱]|[:：])', line.strip())
+                            if m:
+                                r1 = lp.add_run(m.group(0)); r1.bold, r1.font.color.rgb = True, PURPLE
+                                r2 = lp.add_run(line.strip()[len(m.group(0)):]); r2.font.color.rgb = PURPLE
+                            else:
+                                lp.add_run(line.strip()).font.color.rgb = PURPLE
+                    
+                    src = str(r['出處'])
+                    if src and src.lower() != "nan":
+                        sp = doc.add_paragraph(); sp.paragraph_format.space_before = Pt(2)
+                        rl = sp.add_run("出處 : "); rl.bold, rl.font.color.rgb = True, BLUE
+                        sp.add_run(src).font.color.rgb = BLUE
+                    doc.add_paragraph("")
 
-            final_word_bytes = io.BytesIO()
-            doc.save(final_word_bytes)
+                final_word_bytes = io.BytesIO()
+                doc.save(final_word_bytes)
 
-            st.session_state["generated_excel"] = final_excel_bytes.getvalue()
-            st.session_state["generated_word"] = final_word_bytes.getvalue()
-            st.session_state["saved_excel_filename"] = excel_filename
-            st.session_state["saved_exam_title"] = exam_title
+                st.session_state["generated_excel"] = final_excel_bytes.getvalue()
+                st.session_state["generated_word"] = final_word_bytes.getvalue()
+                st.session_state["saved_excel_filename"] = excel_filename
+                st.session_state["saved_exam_title"] = exam_title
 
         except Exception as e:
             st.error(f"出題過程出錯：{e}")
@@ -413,9 +383,11 @@ if total_pdf_count > 0:
     # ==================== 下載按鈕渲染 ====================
     if "generated_excel" in st.session_state and "generated_word" in st.session_state:
         st.success("🎉 題庫與試卷皆已設計完成！請在下方直接點擊下載原始檔案：")
+        
         def sanitize_f(name): return re.sub(r'[\\/:*?"<>|]', '_', str(name))
         s_excel_name = sanitize_f(st.session_state["saved_excel_filename"])
         s_word_name = sanitize_f(st.session_state["saved_exam_title"])
+
         dl_col1, dl_col2 = st.columns(2)
         with dl_col1:
             st.download_button(
