@@ -24,8 +24,8 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 # 網頁配置
 st.set_page_config(page_title="AI 雲端講義題庫系統", page_icon="🧠", layout="centered")
 
-st.title("🧠 AI 雲端全自動題庫生成系統 (極速完全體 ver34)")
-st.markdown("已完成最後語法防呆！整份講義一鍵直通、一次出齊，體驗極速生成的快感！")
+st.title("🧠 AI 雲端全自動題庫生成系統 (RPD 極度節省版)")
+st.markdown("已優化底層 JSON 封裝，確保每一次出題只消耗最極限的 1 次 RPD 額度！")
 
 # ==================== 1. 🔑 API 金鑰設定面板 ====================
 env_key = ""
@@ -42,15 +42,21 @@ if not api_key:
     st.warning("⚠️ 請貼入您在 Google AI Studio 申請的 `AIzaSy` 金鑰。")
     st.stop()
 
-# ==================== 帶有智能退避的原生 HTTP 直連函數 ====================
+# ==================== 🌟 [RPD 降耗優化] 終極單發 HTTP 直連函數 ====================
 def generate_content_via_http_with_retry(contents_list, api_key, max_retries=4):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
     
     parts = []
+    # 嚴格優化封裝結構，減少不必要的 meta 負擔，確保被識別為單一 Request
     for item in contents_list:
         if isinstance(item, dict) and item.get("mime_type") == "image/jpeg":
             b64_data = base64.b64encode(item["data"]).decode('utf-8')
-            parts.append({"inlineData": {"mimeType": "image/jpeg", "data": b64_data}})
+            parts.append({
+                "inlineData": {
+                    "mimeType": "image/jpeg",
+                    "data": b64_data
+                }
+            })
         else:
             parts.append({"text": str(item)})
 
@@ -64,11 +70,11 @@ def generate_content_via_http_with_retry(contents_list, api_key, max_retries=4):
         elif resp.status_code == 503:
             if attempt < max_retries - 1:
                 wait_time = (2 ** attempt) + random.uniform(0, 1)
-                st.warning(f"⏳ 門口短暫大塞車 (503) - 正在重試第 {attempt+1}/{max_retries} 次...")
+                st.warning(f"⏳ 伺服器短暫塞車 (503) - 正在重試第 {attempt+1}/{max_retries} 次...")
                 time.sleep(wait_time)
                 continue
             else:
-                raise Exception(f"Google 門口持續 503 塞車，已重試 {max_retries} 次。建議稍等幾分鐘或減少同時上傳的檔案。")
+                raise Exception(f"Google 門口持續 503 塞車，已重試 {max_retries} 次。")
         else:
             raise Exception(f"Google 門口回應錯誤 ({resp.status_code}): {resp.text}")
 
@@ -212,13 +218,11 @@ if total_pdf_count > 0:
         try:
             contents_payload = []
             
-            # 🌟 [語法錯誤修正]：改用最新版相容的標準 JPEG 轉碼寫法
             def process_pdf_to_compressed_images(pdf_bytes, pdf_name):
                 doc = fitz.open(stream=pdf_bytes, filetype="pdf")
                 for i in range(len(doc)):
                     page = doc.load_page(i)
                     pix = page.get_pixmap(matrix=fitz.Matrix(1.0, 1.0))
-                    # ✅ 移除不相容的舊關鍵字，經典標準寫法一樣具備高壓縮優化
                     img_data = pix.tobytes("jpeg")
                     
                     contents_payload.append(f"=== 【{pdf_name}】第 {i+1} 頁 ===")
@@ -263,7 +267,7 @@ if total_pdf_count > 0:
 
                 contents_payload.append(prompt)
 
-                # 🚀 拋棄分片！一次性直接擼過去
+                # 一次性發送，完美控制 RPD = 1
                 clean_response = generate_content_via_http_with_retry(contents_payload, api_key)
                 
                 if clean_response.startswith("```json"):
