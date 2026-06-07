@@ -67,7 +67,7 @@ with st.sidebar:
     api_key = user_live_key.strip() if user_live_key else env_key
     
     st.markdown("---")
-    st.caption("💡 提示：本工作站全面採用底層 HTTP 直連技術，優化傳輸封裝，確保每次呼叫只扣減最極限的 1次 RPD 額度。")
+    st.caption("💡 提示：本工作站全面採用底層 HTTP 直連技術，優化傳輸封裝，確保每次呼叫只扣減最極限的 1 次 RPD 額度。")
 
 if not api_key:
     st.warning("⚠️ 請先在左側邊欄填入您在 Google AI Studio 申請的 `AIzaSy` 金鑰以解鎖系統。")
@@ -455,7 +455,7 @@ else:
                     "選項B": str(row[col_b]).strip() if pd.notna(row[col_b]) else "",
                     "選項C": str(row[col_c]).strip() if pd.notna(row[col_c]) else "",
                     "選項D": str(row[col_d]).strip() if pd.notna(row[col_d]) else "",
-                    "選項E": str(row[col_e]).strip() if col_e and pd.notna(row[row_e if 'row_e' in locals() else col_e]) else ""
+                    "選項E": str(row[col_e]).strip() if col_e and pd.notna(row[col_e]) else ""
                 })
 
             if st.button("⚡ 開始全自動配對醫學詳解 ⚡", use_container_width=True):
@@ -575,13 +575,14 @@ else:
                 except Exception as e:
                     st.error(f"分析過程出錯：{e}")
 
-        # 下載按鈕 (模組 B) - 🚀 移到正確的與 Try 平行的縮排層級
-        if "sol_excel_b" in st.session_state and "sol_word_b" in st.session_state:
-            st.success("🎉 模式 B：現成題目之專家詳解已全數配對補全！請下載：")
-            dl_col1_b, dl_col2_b = st.columns(2)
-            with dl_col1_b: 
-                st.download_button("📊 下載附詳解題庫 (.xlsx)", data=st.session_state["sol_excel_b"], file_name="精修醫學詳解題庫.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
-            with dl_col2_b: 
-                st.download_button("📄 下載附詳解試卷 (.docx)", data=st.session_state["sol_word_b"], file_name="精修醫學詳解試卷.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True)
-    except Exception as e:
-        st.error(f"讀取 Excel 檔案發生錯誤：{e}")
+            # 下載按鈕 (模組 B) - 🚀 確保與最外層的 if st.button 對齊
+            if "sol_excel_b" in st.session_state and "sol_word_b" in st.session_state:
+                st.success("🎉 模式 B：現成題目之專家詳解已全數配對補全！請下載：")
+                dl_col1_b, dl_col2_b = st.columns(2)
+                with dl_col1_b: 
+                    st.download_button("📊 下載附詳解題庫 (.xlsx)", data=st.session_state["sol_excel_b"], file_name="精修醫學詳解題庫.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+                with dl_col2_b: 
+                    st.download_button("📄 下載附詳解試卷 (.docx)", data=st.session_state["sol_word_b"], file_name="精修醫學詳解試卷.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True)
+
+        except Exception as e:
+            st.error(f"讀取 Excel 檔案發生錯誤：{e}")
