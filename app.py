@@ -50,8 +50,8 @@ EXCEL_BORDER = Border(
 # 網頁配置
 st.set_page_config(page_title="AI 醫學共筆題庫工作站", page_icon="🧠", layout="centered")
 
-st.title("🧠 AI 醫學共筆題庫雙模工作站")
-st.markdown("共筆組長專屬神器：結合【全講義圖文智慧出題】與【現成題目自動配詳解】兩大核心功能！")
+st.title("🧠 AI 醫學共筆題庫三模工作站")
+st.markdown("共筆組長專屬完全體：整合【講義智慧出題】、【純題配詳解】與【現成題庫轉 Word】三大核心功能！")
 
 # ==================== 1. 🔑 共享 API 金鑰設定面板 ====================
 env_key = ""
@@ -67,11 +67,7 @@ with st.sidebar:
     api_key = user_live_key.strip() if user_live_key else env_key
     
     st.markdown("---")
-    st.caption("💡 提示：本工作站全面採用底層 HTTP 直連技術，優化傳輸封裝，確保每次呼叫只扣減最極限的 1 次 RPD 額度。")
-
-if not api_key:
-    st.warning("⚠️ 請先在左側邊欄填入您在 Google AI Studio 申請的 `AIzaSy` 金鑰以解鎖系統。")
-    st.stop()
+    st.caption("💡 提示：本工作站全面採用底層 HTTP 直連技術。全新『模組 C』為純排版引擎，完全不消耗任何 API 額度且無需金鑰驗證。")
 
 # ==================== 🌟 共享的終極單發 HTTP 直連函數 ====================
 def generate_content_via_http_with_retry(contents_list, api_key, max_retries=4):
@@ -108,10 +104,14 @@ def generate_content_via_http_with_retry(contents_list, api_key, max_retries=4):
         else:
             raise Exception(f"Google 門口回應錯誤 ({resp.status_code}): {resp.text}")
 
-# ==================== 🗂️ 功能切換導覽器 ====================
+# ==================== 🗂️ 全新三功能切換導覽器 ====================
 main_mode = st.radio(
     "🎯 請選擇您目前想要使用的共筆功能模組：",
-    ["📚 模組 A：上傳/連動講義 ➡️ 智慧圖文大融合出題", "📝 模組 B：上傳現成題目 ➡️ 專家級醫學詳解補完"],
+    [
+        "📚 模組 A：講義圖文智慧出題", 
+        "📝 模組 B：現成題目自動配詳解", 
+        "📄 模組 C：既有題庫 Excel ➡️ 轉 Word 考卷"
+    ],
     index=0,
     horizontal=True
 )
@@ -122,6 +122,10 @@ st.markdown("---")
 # 🌟 模組 A：全自動講義圖文出題系統
 # ==============================================================================
 if "模組 A" in main_mode:
+    if not api_key:
+        st.warning("⚠️ 模式 A 需要呼叫 AI 視覺模型，請先在左側邊欄配置您的 API 金鑰。")
+        st.stop()
+
     st.subheader("📚 模式 A：講義圖文智慧出題（支援心電圖/解剖圖辨識）")
     st.caption("系統將自動將 PDF 講義轉化為極輕量高壓縮影像，讓 AI 直接肉眼看圖出題，並連動 GitHub 歷史資料夾防止題目重複。")
 
@@ -134,7 +138,6 @@ if "模組 A" in main_mode:
     encoded_user = urllib.parse.quote(GITHUB_USER)
     encoded_repo = urllib.parse.quote(GITHUB_REPO)
 
-    # 智慧歷史題庫掃描
     github_api_hist_url = f"https://api.github.com/repos/{encoded_user}/{encoded_repo}/contents/{urllib.parse.quote(GITHUB_FOLDER_HIST)}"
     file_options = ["❌ 不使用歷史資料（全新出題）"]
     all_excel_files = [] 
@@ -161,7 +164,6 @@ if "模組 A" in main_mode:
         for f in all_excel_files: 
             file_options.append(f)
 
-    # 智慧雲端講義書櫃掃描
     cloud_pdf_files = []
     github_api_pdf_url = f"https://api.github.com/repos/{encoded_user}/{encoded_repo}/contents/{urllib.parse.quote(GITHUB_FOLDER_PDF)}"
 
@@ -183,7 +185,6 @@ if "模組 A" in main_mode:
         except Exception: 
             pass
 
-    # 側邊欄加載專用 UI
     history_titles = []
     with st.sidebar:
         st.header("⚙️ 雲端書櫃與歷史庫狀態")
@@ -232,7 +233,6 @@ if "模組 A" in main_mode:
             except: 
                 return None
 
-    # --- 介面渲染與出題參數 ---
     uploaded_pdfs = st.file_uploader("從本機電腦上傳新講義 PDF (可多選)", type=["pdf"], accept_multiple_files=True)
     total_pdf_count = len(uploaded_pdfs) + len(selected_cloud_pdfs)
 
@@ -323,7 +323,6 @@ if "模組 A" in main_mode:
                         row_dict['出處'] = str(q.get('出處', '')).strip()
                         processed_rows.append(row_dict)
 
-                    # --- Excel 格式排版 ---
                     excel_out = io.BytesIO()
                     pd.DataFrame(processed_rows).to_excel(excel_out, index=False)
                     excel_out.seek(0)
@@ -348,7 +347,6 @@ if "模組 A" in main_mode:
                     final_excel_bytes = io.BytesIO()
                     wb.save(final_excel_bytes)
 
-                    # --- Word 格式排版 ---
                     doc = Document()
                     sec = doc.sections[0]
                     sec.top_margin = sec.bottom_margin = sec.left_margin = sec.right_margin = Cm(1.27)
@@ -408,7 +406,6 @@ if "模組 A" in main_mode:
             except Exception as e:
                 st.error(f"出題過程出錯：{e}")
 
-        # 下載按鈕 (模組 A)
         if "generated_excel_a" in st.session_state and "generated_word_a" in st.session_state:
             st.success("🎉 模式 A：講義題庫與試卷皆已設計完成！請下載：")
             dl_col1, dl_col2 = st.columns(2)
@@ -420,7 +417,11 @@ if "模組 A" in main_mode:
 # ==============================================================================
 # 🌟 模組 B：現成題目自動配詳解系統
 # ==============================================================================
-else:
+elif "模組 B" in main_mode:
+    if not api_key:
+        st.warning("⚠️ 模式 B 需要呼叫 AI 文字模型，請先在左側邊欄配置您的 API 金鑰。")
+        st.stop()
+
     st.subheader("📝 模式 B：現成題目自動配詳解（超輕量・不消耗 Token）")
     st.caption("上傳現有的題目 Excel 檔，AI 將原封不動為您欄位對接，並逐題配上高質感的繁體中文醫學詳解與選項辨析。")
 
@@ -500,7 +501,6 @@ else:
                             row_dict['出處'] = "醫學資料庫專家詳解"
                             processed_rows_b.append(row_dict)
 
-                        # --- Excel 產出 ---
                         excel_out_b = io.BytesIO()
                         pd.DataFrame(processed_rows_b).to_excel(excel_out_b, index=False)
                         excel_out_b.seek(0)
@@ -525,13 +525,13 @@ else:
                         final_excel_bytes_b = io.BytesIO()
                         wb_b.save(final_excel_bytes_b)
 
-                        # --- Word 產出 ---
                         doc_b = Document()
                         sec_b = doc_b.sections[0]
                         sec_b.top_margin = sec_b.bottom_margin = sec_b.left_margin = sec_b.right_margin = Cm(1.27)
                         doc_b.styles['Normal'].font.name = 'Times New Roman'
                         doc_b.styles['Normal'].element.rPr.rFonts.set(qn('w:eastAsia'), '微軟正黑體')
                         doc_b.styles['Normal'].font.size = Pt(12)
+                        PURPLE = RGBColor(112, 48, 160)
                         title_p_b = doc_b.add_paragraph()
                         title_p_b.alignment = WD_ALIGN_PARAGRAPH.CENTER
                         title_p_b.add_run("精修醫學題庫_含專家詳解解說").bold = True
@@ -575,7 +575,6 @@ else:
                 except Exception as e:
                     st.error(f"分析過程出錯：{e}")
 
-            # 下載按鈕 (模組 B) - 🚀 確保與最外層的 if st.button 對齊
             if "sol_excel_b" in st.session_state and "sol_word_b" in st.session_state:
                 st.success("🎉 模式 B：現成題目之專家詳解已全數配對補全！請下載：")
                 dl_col1_b, dl_col2_b = st.columns(2)
@@ -586,3 +585,137 @@ else:
 
         except Exception as e:
             st.error(f"讀取 Excel 檔案發生錯誤：{e}")
+
+# ==============================================================================
+# 🌟 [全新加碼] 模組 C：既有題庫已含詳解 Excel ➡️ 直接轉成 Word 考卷
+# ==============================================================================
+else:
+    st.subheader("📄 模式 C：Excel 已含詳解 ➡️ 直接高品質渲染 Word 考卷")
+    st.caption("【免金鑰、免額度】直接將現有含有詳解與正確答案的 Excel 資料表，原封不動快速編排為具備標準字型與詳解高亮色的 Word 試卷檔。")
+
+    uploaded_file_c = st.file_uploader("請選擇包含完整題目與詳解的 Excel 檔案 (.xlsx)", type=["xlsx"], key="mode_c_uploader")
+
+    if uploaded_file_c:
+        try:
+            df_input_c = pd.read_excel(uploaded_file_c)
+            st.success(f"📊 成功讀取現有題庫！共偵測到 **{len(df_input_c)}** 道題庫內容。")
+
+            # 智慧型模糊表頭匹配
+            col_q = next((c for c in df_input_c.columns if any(k in str(c) for k in ["題目", "Question", "內容"])), None)
+            col_a = next((c for c in df_input_c.columns if "A" in str(c)), None)
+            col_b = next((c for c in df_input_c.columns if "B" in str(c)), None)
+            col_c = next((c for c in df_input_c.columns if "C" in str(c)), None)
+            col_d = next((c for c in df_input_c.columns if "D" in str(c)), None)
+            col_e = next((c for c in df_input_c.columns if "E" in str(c)), None)
+            col_ans = next((c for c in df_input_c.columns if any(k in str(c) for k in ["答案", "正確", "Answer"])), None)
+            col_expl = next((c for c in df_input_c.columns if any(k in str(c) for k in ["詳解", "解析", "Explain", "Explanation"])), None)
+            col_src = next((c for c in df_input_c.columns if any(k in str(c) for k in ["出處", "來源", "Source"])), None)
+
+            if not (col_q and col_a and col_b):
+                st.error("❌ 找不到基本的『題目內容』或『選項』欄位，請確認 Excel 表頭。")
+                st.stop()
+
+            # 設定轉換參數
+            cc1, cc2 = st.columns(2)
+            with cc1:
+                start_q_num_c = st.number_input("🔢 設定「起始題號」", min_value=1, max_value=999, value=1, step=1, key="mode_c_qnum")
+            with cc2:
+                exam_title_c = st.text_input("📄 Word 考卷大標題", "醫學科綜合測驗題庫")
+
+            if st.button("📥 一鍵原封不動轉換為 Word 試卷 📥", use_container_width=True):
+                with st.spinner("🎨 正在啟動排版引擎，進行字型美化、段落縮排與高亮著色中..."):
+                    
+                    # 建立標準高品質 Word 文件結構
+                    doc_c = Document()
+                    sec_c = doc_c.sections[0]
+                    sec_c.top_margin = sec_c.bottom_margin = sec_c.left_margin = sec_c.right_margin = Cm(1.27)
+                    doc_c.styles['Normal'].font.name = 'Times New Roman'
+                    doc_c.styles['Normal'].element.rPr.rFonts.set(qn('w:eastAsia'), '微軟正黑體')
+                    doc_c.styles['Normal'].font.size = Pt(12)
+                    
+                    PURPLE, BLUE = RGBColor(112, 48, 160), RGBColor(0, 50, 150)
+                    
+                    # 渲染大標題
+                    title_p = doc_c.add_paragraph()
+                    title_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    title_p.add_run(str(exam_title_c)).bold = True
+                    title_p.runs[-1].font.size = Pt(16)
+
+                    opt_labels = ['A', 'B', 'C', 'D', 'E']
+
+                    # 逐行原封不動讀取、填入
+                    for idx, row in df_input_c.iterrows():
+                        current_q_num = int(start_q_num_c) + idx
+                        
+                        # 題目內容
+                        q_txt = str(row[col_q]).strip()
+                        doc_c.add_paragraph(f"{current_q_num}. {q_txt}").paragraph_format.space_after = Pt(6)
+                        
+                        # 選項
+                        cols_opts = [col_a, col_b, col_c, col_d, col_e]
+                        for lbl, c_opt in zip(opt_labels, cols_opts):
+                            if c_opt and pd.notna(row[c_opt]):
+                                opt_txt = str(row[c_opt]).strip()
+                                if opt_txt:
+                                    op = doc_c.add_paragraph(f"({lbl}) {opt_txt}")
+                                    op.paragraph_format.left_indent, op.paragraph_format.space_after = Pt(18), Pt(0)
+                        
+                        # 正確答案 (如果有配對到答案欄位)
+                        if col_ans and pd.notna(row[col_ans]):
+                            ans_txt = str(row[col_ans]).upper().strip()
+                            ans_p = doc_c.add_paragraph()
+                            ans_p.paragraph_format.space_before = Pt(6)
+                            ans_p.add_run("Ans : ").bold = True
+                            ans_p.add_run(f"({ans_txt})")
+                        
+                        # 詳解內容 (如果有配對到詳解欄位)
+                        if col_expl and pd.notna(row[col_expl]):
+                            expl_txt = str(row[col_expl]).strip()
+                            if expl_txt and expl_txt.lower() != "nan":
+                                h = doc_c.add_paragraph()
+                                h.paragraph_format.space_before, h.paragraph_format.space_after = Pt(4), Pt(0)
+                                run = h.add_run("詳解 :"); run.bold, run.font.color.rgb = True, PURPLE
+                                
+                                # 對內嵌換行符做智慧分段排版
+                                for line in expl_txt.split('\n'):
+                                    if not line.strip(): continue
+                                    lp = doc_c.add_paragraph()
+                                    lp.paragraph_format.left_indent, lp.paragraph_format.space_after = Pt(18), Pt(2)
+                                    m = re.match(r'^([A-F])\s*([\(（].*?[\)隱]|[:：])', line.strip())
+                                    if m:
+                                        lp.add_run(m.group(0)).bold = True
+                                        lp.runs[-1].font.color.rgb = PURPLE
+                                        lp.add_run(line.strip()[len(m.group(0)):]).font.color.rgb = PURPLE
+                                    else:
+                                        lp.add_run(line.strip()).font.color.rgb = PURPLE
+                        
+                        # 出處欄位 (如果有配對到出處)
+                        if col_src and pd.notna(row[col_src]):
+                            src_txt = str(row[col_src]).strip()
+                            if src_txt and src_txt.lower() != "nan":
+                                sp = doc_c.add_paragraph()
+                                sp.paragraph_format.space_before = Pt(2)
+                                sp.add_run("出處 : ").bold = True
+                                sp.runs[-1].font.color.rgb = BLUE
+                                sp.add_run(src_txt).font.color.rgb = BLUE
+                                
+                        doc_c.add_paragraph("") # 每題題組間留白
+
+                    # 將產出的二進位流寫入緩存
+                    final_word_bytes_c = io.BytesIO()
+                    doc_c.save(final_word_bytes_c)
+                    st.session_state["sol_word_c"] = final_word_bytes_c.getvalue()
+
+            # 獨立渲染下載區，完全不受 try/except 層級干擾
+            if "sol_word_c" in st.session_state:
+                st.success("🎉 模式 C：Word 考卷排版渲染已完美達成！請點擊下方按鈕下載：")
+                st.download_button(
+                    label="📄 下載精修排版 Word 試卷 (.docx)",
+                    data=st.session_state["sol_word_c"],
+                    file_name="已含詳解_精修排版試卷.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    use_container_width=True
+                )
+
+        except Exception as e:
+            st.error(f"轉換排版過程發生錯誤：{e}")
