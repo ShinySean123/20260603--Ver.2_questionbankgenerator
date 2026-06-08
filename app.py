@@ -233,31 +233,45 @@ if "模組 A" in main_mode:
             except: 
                 return None
 
+    # --- 介面渲染與出題參數 ---
     uploaded_pdfs = st.file_uploader("從本機電腦上傳新講義 PDF (可多選)", type=["pdf"], accept_multiple_files=True)
     total_pdf_count = len(uploaded_pdfs) + len(selected_cloud_pdfs)
 
     if total_pdf_count > 0:
         st.markdown(f"📊 **目前已鎖定講義總數：{total_pdf_count} 份**")
-        col1, col2, col3 = st.columns(3)
-        with col1: 
+        
+        # 第一排：基本設定
+        col_q1, col_q2, col_q3 = st.columns(3)
+        with col_q1: 
             page_range = st.text_input("想根據哪幾頁出題？", "整份")
-        with col2: 
-            topic_name = st.text_input("章節/主題名稱", "醫學綜合領域測驗")
-        with col3: 
-            num_questions = st.number_input("預計生成題數", min_value=1, max_value=50, value=10)
-
-        col_num, col_blank = st.columns([1, 2])
-        with col_num: 
+        with col_q2: 
+            num_questions = st.number_input("預計生成題數", min_value=1, max_value=100, value=10)
+        with col_q3: 
             start_q_num = st.number_input("🔢 設定「起始題號」", min_value=1, max_value=999, value=1, step=1, key="mode_a_qnum")
 
-        col4, col5 = st.columns(2)
-        with col4: 
-            exam_title_input = st.text_input("Word 考卷大標題", f"{topic_name}_綜合測驗")
-        with col5: 
-            excel_filename_input = st.text_input("Excel 輸出檔名", f"{topic_name}_綜合題庫")
+        st.markdown("---")
+        st.subheader("🏷️ 設定大標題與檔名")
+        
+        # 自動計算「幾題到幾題」並補零 (例如 01~10)
+        end_q_num = start_q_num + num_questions - 1
+        default_remarks = f"{start_q_num:02d}~{end_q_num:02d}"
 
-        exam_title = str(exam_title_input) if exam_title_input else "測驗題庫"
-        excel_filename = str(excel_filename_input) if excel_filename_input else "精修題庫"
+        # 第二排：動態檔名組裝
+        col_t1, col_t2 = st.columns(2)
+        with col_t1: 
+            subject_name = st.text_input("科目名稱", "生理學")
+        with col_t2: 
+            teacher_name = st.text_input("老師名稱", "王大明")
+            
+        col_t3, col_t4 = st.columns(2)
+        with col_t3: 
+            topic_name = st.text_input("課堂主題", "心血管系統")
+        with col_t4: 
+            remarks = st.text_input("備註 (預設為題號範圍)", default_remarks)
+
+        # 組裝終極檔名與大標題
+        final_title_filename = f"{subject_name}_{teacher_name}_{topic_name}_{remarks}"
+        st.info(f"📁 系統預覽輸出名稱將為：**{final_title_filename}**")
 
         if st.button("⚡ 開始全自動雙模融合出題 ⚡", use_container_width=True):
             try:
@@ -285,8 +299,12 @@ if "模組 A" in main_mode:
                     if history_titles: 
                         history_block = "⚠️ 絕對禁止重複、改寫或高度雷同以下這些已經出過的舊題目：\n" + "\n".join([f"- {t}" for t in history_titles])
 
+                    # 🌟 加上極度嚴格的題數防呆 Prompt
                     prompt = f"""
-                    你現在是一位資深的醫學與生物科學教授。請根據我為你提供的這份完整講義影像（包含文字與所有醫學圖表），{range_instruction}，並圍繞核心主題【{topic_name}】一次性出齊 {num_questions} 題五選一的單選題。
+                    你現在是一位資深的醫學與生物科學教授。請根據我為你提供的這份完整講義影像（包含文字與所有醫學圖表），{range_instruction}，並圍繞核心主題【{topic_name}】出題。
+                    
+                    【極度嚴格警告】：我要求你精準輸出「剛好」 {num_questions} 題五選一的單選題。絕對不能多出，也不能少出！
+                    
                     請特別發揮你的視覺辨識能力，若講義中有重要的心電圖、流程圖譜或解剖結構，務必將其核心觀念轉化為考題！
                     {history_block}
                     輸出的內容必須嚴格遵守以下規則：
@@ -308,6 +326,9 @@ if "模組 A" in main_mode:
                         clean_response = clean_response.split(BT_ONLY)[1].split(BT_ONLY)[0].strip()
                         
                     raw_questions = json.loads(clean_response)
+                    
+                    # 🌟 【終極防呆】：Python 物理強制截斷，確保絕對不會超過你指定的題數
+                    raw_questions = raw_questions[:num_questions]
 
                 with st.spinner("🎨 題目設計完成！正在套用高質感格式排版引擎..."):
                     processed_rows = []
@@ -323,6 +344,7 @@ if "模組 A" in main_mode:
                         row_dict['出處'] = str(q.get('出處', '')).strip()
                         processed_rows.append(row_dict)
 
+                    # --- Excel 格式排版 ---
                     excel_out = io.BytesIO()
                     pd.DataFrame(processed_rows).to_excel(excel_out, index=False)
                     excel_out.seek(0)
@@ -347,6 +369,7 @@ if "模組 A" in main_mode:
                     final_excel_bytes = io.BytesIO()
                     wb.save(final_excel_bytes)
 
+                    # --- Word 格式排版 ---
                     doc = Document()
                     sec = doc.sections[0]
                     sec.top_margin = sec.bottom_margin = sec.left_margin = sec.right_margin = Cm(1.27)
@@ -354,9 +377,11 @@ if "模組 A" in main_mode:
                     doc.styles['Normal'].element.rPr.rFonts.set(qn('w:eastAsia'), '微軟正黑體')
                     doc.styles['Normal'].font.size = Pt(12)
                     PURPLE, BLUE = RGBColor(112, 48, 160), RGBColor(0, 50, 150)
+                    
                     title_p = doc.add_paragraph()
                     title_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                    title_p.add_run(exam_title).bold = True
+                    # 🌟 寫入動態組合的大標題
+                    title_p.add_run(final_title_filename).bold = True
                     title_p.runs[-1].font.size = Pt(16)
 
                     for r in processed_rows:
@@ -400,19 +425,25 @@ if "模組 A" in main_mode:
 
                     st.session_state["generated_excel_a"] = final_excel_bytes.getvalue()
                     st.session_state["generated_word_a"] = final_word_bytes.getvalue()
-                    st.session_state["saved_excel_filename_a"] = excel_filename
-                    st.session_state["saved_exam_title_a"] = exam_title
+                    # 🌟 儲存動態檔案名稱供下載按鈕使用
+                    st.session_state["saved_exam_title_a"] = final_title_filename
 
             except Exception as e:
                 st.error(f"出題過程出錯：{e}")
 
+        # 下載按鈕 (模組 A)
         if "generated_excel_a" in st.session_state and "generated_word_a" in st.session_state:
             st.success("🎉 模式 A：講義題庫與試卷皆已設計完成！請下載：")
+            
+            # 使用我們動態生成的檔名（過濾掉不合法字元）
+            def sanitize_f(name): return re.sub(r'[\\/:*?"<>|]', '_', str(name))
+            s_name = sanitize_f(st.session_state["saved_exam_title_a"])
+            
             dl_col1, dl_col2 = st.columns(2)
             with dl_col1:
-                st.download_button("📊 下載精修 Excel 題庫 (.xlsx)", data=st.session_state["generated_excel_a"], file_name=f"{st.session_state['saved_excel_filename_a']}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+                st.download_button("📊 下載精修 Excel 題庫 (.xlsx)", data=st.session_state["generated_excel_a"], file_name=f"{s_name}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
             with dl_col2:
-                st.download_button("📄 下載精修 Word 試卷 (.docx)", data=st.session_state["generated_word_a"], file_name=f"{st.session_state['saved_exam_title_a']}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True)
+                st.download_button("📄 下載精修 Word 試卷 (.docx)", data=st.session_state["generated_word_a"], file_name=f"{s_name}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True)
 
 # ==============================================================================
 # 🌟 模組 B：現成題目自動配詳解系統
@@ -587,7 +618,7 @@ elif "模組 B" in main_mode:
             st.error(f"讀取 Excel 檔案發生錯誤：{e}")
 
 # ==============================================================================
-# 🌟 [全新加碼] 模組 C：既有題庫已含詳解 Excel ➡️ 直接轉成 Word 考卷
+# 🌟 模組 C：既有題庫已含詳解 Excel ➡️ 直接轉成 Word 考卷
 # ==============================================================================
 else:
     st.subheader("📄 模式 C：Excel 已含詳解 ➡️ 直接高品質渲染 Word 考卷")
@@ -600,7 +631,6 @@ else:
             df_input_c = pd.read_excel(uploaded_file_c)
             st.success(f"📊 成功讀取現有題庫！共偵測到 **{len(df_input_c)}** 道題庫內容。")
 
-            # 智慧型模糊表頭匹配
             col_q = next((c for c in df_input_c.columns if any(k in str(c) for k in ["題目", "Question", "內容"])), None)
             col_a = next((c for c in df_input_c.columns if "A" in str(c)), None)
             col_b = next((c for c in df_input_c.columns if "B" in str(c)), None)
@@ -615,7 +645,6 @@ else:
                 st.error("❌ 找不到基本的『題目內容』或『選項』欄位，請確認 Excel 表頭。")
                 st.stop()
 
-            # 設定轉換參數
             cc1, cc2 = st.columns(2)
             with cc1:
                 start_q_num_c = st.number_input("🔢 設定「起始題號」", min_value=1, max_value=999, value=1, step=1, key="mode_c_qnum")
@@ -625,7 +654,6 @@ else:
             if st.button("📥 一鍵原封不動轉換為 Word 試卷 📥", use_container_width=True):
                 with st.spinner("🎨 正在啟動排版引擎，進行字型美化、段落縮排與高亮著色中..."):
                     
-                    # 建立標準高品質 Word 文件結構
                     doc_c = Document()
                     sec_c = doc_c.sections[0]
                     sec_c.top_margin = sec_c.bottom_margin = sec_c.left_margin = sec_c.right_margin = Cm(1.27)
@@ -635,7 +663,6 @@ else:
                     
                     PURPLE, BLUE = RGBColor(112, 48, 160), RGBColor(0, 50, 150)
                     
-                    # 渲染大標題
                     title_p = doc_c.add_paragraph()
                     title_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
                     title_p.add_run(str(exam_title_c)).bold = True
@@ -643,15 +670,12 @@ else:
 
                     opt_labels = ['A', 'B', 'C', 'D', 'E']
 
-                    # 逐行原封不動讀取、填入
                     for idx, row in df_input_c.iterrows():
                         current_q_num = int(start_q_num_c) + idx
                         
-                        # 題目內容
                         q_txt = str(row[col_q]).strip()
                         doc_c.add_paragraph(f"{current_q_num}. {q_txt}").paragraph_format.space_after = Pt(6)
                         
-                        # 選項
                         cols_opts = [col_a, col_b, col_c, col_d, col_e]
                         for lbl, c_opt in zip(opt_labels, cols_opts):
                             if c_opt and pd.notna(row[c_opt]):
@@ -660,7 +684,6 @@ else:
                                     op = doc_c.add_paragraph(f"({lbl}) {opt_txt}")
                                     op.paragraph_format.left_indent, op.paragraph_format.space_after = Pt(18), Pt(0)
                         
-                        # 正確答案 (如果有配對到答案欄位)
                         if col_ans and pd.notna(row[col_ans]):
                             ans_txt = str(row[col_ans]).upper().strip()
                             ans_p = doc_c.add_paragraph()
@@ -668,7 +691,6 @@ else:
                             ans_p.add_run("Ans : ").bold = True
                             ans_p.add_run(f"({ans_txt})")
                         
-                        # 詳解內容 (如果有配對到詳解欄位)
                         if col_expl and pd.notna(row[col_expl]):
                             expl_txt = str(row[col_expl]).strip()
                             if expl_txt and expl_txt.lower() != "nan":
@@ -676,7 +698,6 @@ else:
                                 h.paragraph_format.space_before, h.paragraph_format.space_after = Pt(4), Pt(0)
                                 run = h.add_run("詳解 :"); run.bold, run.font.color.rgb = True, PURPLE
                                 
-                                # 對內嵌換行符做智慧分段排版
                                 for line in expl_txt.split('\n'):
                                     if not line.strip(): continue
                                     lp = doc_c.add_paragraph()
@@ -689,7 +710,6 @@ else:
                                     else:
                                         lp.add_run(line.strip()).font.color.rgb = PURPLE
                         
-                        # 出處欄位 (如果有配對到出處)
                         if col_src and pd.notna(row[col_src]):
                             src_txt = str(row[col_src]).strip()
                             if src_txt and src_txt.lower() != "nan":
@@ -699,14 +719,12 @@ else:
                                 sp.runs[-1].font.color.rgb = BLUE
                                 sp.add_run(src_txt).font.color.rgb = BLUE
                                 
-                        doc_c.add_paragraph("") # 每題題組間留白
+                        doc_c.add_paragraph("")
 
-                    # 將產出的二進位流寫入緩存
                     final_word_bytes_c = io.BytesIO()
                     doc_c.save(final_word_bytes_c)
                     st.session_state["sol_word_c"] = final_word_bytes_c.getvalue()
 
-            # 獨立渲染下載區，完全不受 try/except 層級干擾
             if "sol_word_c" in st.session_state:
                 st.success("🎉 模式 C：Word 考卷排版渲染已完美達成！請點擊下方按鈕下載：")
                 st.download_button(
