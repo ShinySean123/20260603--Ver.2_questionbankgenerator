@@ -22,7 +22,6 @@ from docx.oxml.ns import qn
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 # ==================== 0. 全域常規樣式與字元定義 ====================
-# 使用 chr(96) * 3 動態拼接三個反引號，100% 避免 Git 與 Streamlit Cloud 語法截斷 Bug
 TRIPLE_BACKTICK = chr(96) * 3
 BT_JSON = TRIPLE_BACKTICK + "json"
 BT_ONLY = TRIPLE_BACKTICK
@@ -31,7 +30,6 @@ def sanitize_f(name):
     """全域共用的檔名非法字元過濾器"""
     return re.sub(r'[\\/:*?"<>|]', '_', str(name))
 
-# 共享的 Excel 格式化美化參數
 EXCEL_COL_WIDTHS = {
     'A': 8,   # 題號
     'B': 45,  # 題目內容
@@ -65,13 +63,27 @@ try:
 except Exception: 
     pass
 
-with st.sidebar:
+with St.sidebar:
     st.header("🔑 API 金鑰配置")
     user_live_key = st.text_input("請輸入 API Key：", value=env_key if env_key else "", type="password")
     api_key = user_live_key.strip() if user_live_key else env_key
     
     st.markdown("---")
     st.caption("💡 提示：本工作站全面採用底層 HTTP 直連技術。全新『模組 C』為純排版引擎，完全不消耗任何 API 額度且無需金鑰驗證。")
+
+# 導覽器放置在金鑰檢查前，確保介面正常渲染
+main_mode = st.radio(
+    "🎯 請選擇您目前想要使用的共筆功能模組：",
+    [
+        "📚 模組 A：講義圖文智慧出題", 
+        "📝 模組 B：現成題目自動配詳解", 
+        "📄 模組 C：既有題庫 Excel ➡️ 轉 Word 考卷"
+    ],
+    index=0,
+    horizontal=True
+)
+
+st.markdown("---")
 
 if not api_key and main_mode in ["📚 模組 A：講義圖文智慧出題", "📝 模組 B：現成題目自動配詳解"]:
     st.warning("⚠️ 請先在左側邊欄填入您在 Google AI Studio 申請的 `AIzaSy` 金鑰以解鎖系統。")
@@ -112,28 +124,10 @@ def generate_content_via_http_with_retry(contents_list, api_key, max_retries=4):
         else:
             raise Exception(f"Google 門口回應錯誤 ({resp.status_code}): {resp.text}")
 
-# ==================== 🗂️ 全新三功能切換導覽器 ====================
-main_mode = st.radio(
-    "🎯 請選擇您目前想要使用的共筆功能模組：",
-    [
-        "📚 模組 A：講義圖文智慧出題", 
-        "📝 模組 B：現成題目自動配詳解", 
-        "📄 模組 C：既有題庫 Excel ➡️ 轉 Word 考卷"
-    ],
-    index=0,
-    horizontal=True
-)
-
-st.markdown("---")
-
 # ==============================================================================
 # 🌟 模組 A：全自動講義圖文出題系統
 # ==============================================================================
 if "模組 A" in main_mode:
-    if not api_key:
-        st.warning("⚠️ 模式 A 需要呼叫 AI 視覺模型，請先在左側邊欄配置您的 API 金鑰。")
-        st.stop()
-
     st.subheader("📚 模式 A：講義圖文智慧出題（支援心電圖/解剖圖辨識）")
     st.caption("系統將自動將 PDF 講義轉化為極輕量高壓縮影像，讓 AI 直接肉眼看圖出題，並連動 GitHub 歷史資料夾防止題目重複。")
 
@@ -255,7 +249,6 @@ if "模組 A" in main_mode:
         with col_q3: 
             start_q_num = st.number_input("🔢 設定「起始題號」", min_value=1, max_value=999, value=1, step=1, key="mode_a_qnum")
 
-        # 🌟 【全新功能】：選擇出題語系設定
         st.markdown("---")
         st.subheader("🌐 選擇出題語系樣式")
         lang_style = st.radio(
@@ -268,8 +261,9 @@ if "模組 A" in main_mode:
         st.markdown("---")
         st.subheader("🏷️ 設定大標題與檔名")
         
+        # 🌟 修正點 1：動態計算題號區間並強制同步到 session_state 
         end_q_num = start_q_num + num_questions - 1
-        default_remarks = f"{start_q_num:02d}~{end_q_num:02d}"
+        calculated_remarks_a = f"{start_q_num:02d}~{end_q_num:02d}"
 
         col_t1, col_t2 = st.columns(2)
         with col_t1: subject_name = st.text_input("科目名稱", "生理學", key="sub_a")
@@ -277,7 +271,9 @@ if "模組 A" in main_mode:
             
         col_t3, col_t4 = st.columns(2)
         with col_t3: topic_name = st.text_input("課堂主題", "心血管系統", key="top_a")
-        with col_t4: remarks = st.text_input("備註 (預設為題號範圍)", default_remarks, key="rem_a")
+        with col_t4: 
+            # 透過 value=calculated_remarks_a 讓元件每次隨上方更動而重繪
+            remarks = st.text_input("備註 (預設為題號範圍)", value=calculated_remarks_a, key="rem_a")
 
         final_title_filename = f"{subject_name}_{teacher_name}_{topic_name}_{remarks}"
         st.info(f"📁 系統預覽輸出名稱將為：**{final_title_filename}**")
@@ -308,7 +304,6 @@ if "模組 A" in main_mode:
                     if history_titles: 
                         history_block = "⚠️ 絕對禁止重複、改寫或高度雷同以下這些已經出過的舊題目：\n" + "\n".join([f"- {t}" for t in history_titles])
 
-                    # 🌟 根據選擇，動態組裝語系提示詞（詳解設定恆定不變為繁體中文專家辨析）
                     if "1. 中文出題" in lang_style:
                         lang_prompt = """
                         【語系要求】：
@@ -318,7 +313,7 @@ if "模組 A" in main_mode:
                     else:
                         lang_prompt = """
                         【語系要求】：
-                        - 每個物件中的「題目內容」與「選項A」~「選項E」必須完全使用純英文 (Full English) 撰寫。符合美國醫學執照考試 (USMLE) 或是全英文期末考試的專業醫學出題邏輯。
+                        - 每個物件中的「題目內容」與「選項A」~「選項E'] 必須完全使用純英文 (Full English) 撰寫。符合美國醫學執照考試 (USMLE) 或是全英文期末考試的專業醫學出題邏輯。
                         """
 
                     prompt = f"""
@@ -463,10 +458,6 @@ if "模組 A" in main_mode:
 # 🌟 模組 B：現成題目自動配詳解系統
 # ==============================================================================
 elif "模組 B" in main_mode:
-    if not api_key:
-        st.warning("⚠️ 模式 B 需要呼叫 AI 文字模型，請先在左側邊欄配置您的 API 金鑰。")
-        st.stop()
-
     st.subheader("📝 模式 B：現成題目自動配詳解（超輕量・不消耗 Token）")
     st.caption("上傳現有的題目 Excel 檔，AI 將原封不動為您欄位對接，並逐題配上高質感的繁體中文醫學詳解與選項辨析。")
 
@@ -490,8 +481,9 @@ elif "模組 B" in main_mode:
 
             start_q_num_b = st.number_input("🔢 設定「起始題號」", min_value=1, max_value=999, value=1, step=1, key="mode_b_qnum")
             
+            # 🌟 修正點 2：根據上傳的 Excel 長度自動與起始題號計算連動
             end_q_num_b = start_q_num_b + len(df_input) - 1
-            default_remarks_b = f"{start_q_num_b:02d}~{end_q_num_b:02d}"
+            calculated_remarks_b = f"{start_q_num_b:02d}~{end_q_num_b:02d}"
 
             st.markdown("---")
             st.subheader("🏷️ 設定大標題與檔名")
@@ -501,7 +493,9 @@ elif "模組 B" in main_mode:
                 
             col_t3_b, col_t4_b = st.columns(2)
             with col_t3_b: topic_name_b = st.text_input("課堂主題", "心血管系統", key="top_b")
-            with col_t4_b: remarks_b = st.text_input("備註 (預設為題號範圍)", default_remarks_b, key="rem_b")
+            with col_t4_b: 
+                # 使用 value 綁定計算結果
+                remarks_b = st.text_input("備註 (預設為題號範圍)", value=calculated_remarks_b, key="rem_b")
 
             final_title_filename_b = f"{subject_name_b}_{teacher_name_b}_{topic_name_b}_{remarks_b}"
             st.info(f"📁 系統預覽輸出名稱將為：**{final_title_filename_b}**")
@@ -678,8 +672,9 @@ else:
 
             start_q_num_c = st.number_input("🔢 設定「起始題號」", min_value=1, max_value=999, value=1, step=1, key="mode_c_qnum")
             
+            # 🌟 修正點 3：模組 C 同步加入長度自動連動
             end_q_num_c = start_q_num_c + len(df_input_c) - 1
-            default_remarks_c = f"{start_q_num_c:02d}~{end_q_num_c:02d}"
+            calculated_remarks_c = f"{start_q_num_c:02d}~{end_q_num_c:02d}"
 
             st.markdown("---")
             st.subheader("🏷️ 設定大標題與檔名")
@@ -689,7 +684,9 @@ else:
                 
             col_t3_c, col_t4_c = st.columns(2)
             with col_t3_c: topic_name_c = st.text_input("課堂主題", "心血管系統", key="top_c")
-            with col_t4_c: remarks_c = st.text_input("備註 (預設為題號範圍)", default_remarks_c, key="rem_c")
+            with col_t4_c: 
+                # 使用 value 綁定計算結果
+                remarks_c = st.text_input("備註 (預設為題號範圍)", value=calculated_remarks_c, key="rem_c")
 
             final_title_filename_c = f"{subject_name_c}_{teacher_name_c}_{topic_name_c}_{remarks_c}"
             st.info(f"📁 系統預覽輸出名稱將為：**{final_title_filename_c}**")
