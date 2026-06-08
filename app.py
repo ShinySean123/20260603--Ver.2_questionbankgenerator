@@ -63,7 +63,6 @@ try:
 except Exception: 
     pass
 
-# 🌟 這裡修正了！將原本錯誤的 St 改回正確的小寫 st
 with st.sidebar:
     st.header("🔑 API 金鑰配置")
     user_live_key = st.text_input("請輸入 API Key：", value=env_key if env_key else "", type="password")
@@ -263,7 +262,7 @@ if "模組 A" in main_mode:
         st.subheader("🏷️ 設定大標題與檔名")
         
         end_q_num = start_q_num + num_questions - 1
-        calculated_remarks_a = f"{start_q_num:02d}~{end_q_num:02d}"
+        default_remarks = f"{start_q_num:02d}~{end_q_num:02d}"
 
         col_t1, col_t2 = st.columns(2)
         with col_t1: subject_name = st.text_input("科目名稱", "生理學", key="sub_a")
@@ -272,7 +271,7 @@ if "模組 A" in main_mode:
         col_t3, col_t4 = st.columns(2)
         with col_t3: topic_name = st.text_input("課堂主題", "心血管系統", key="top_a")
         with col_t4: 
-            remarks = st.text_input("備註 (預設為題號範圍)", value=calculated_remarks_a, key="rem_a")
+            remarks = st.text_input("備註 (預設為題號範圍)", value=default_remarks, key="rem_a")
 
         final_title_filename = f"{subject_name}_{teacher_name}_{topic_name}_{remarks}"
         st.info(f"📁 系統預覽輸出名稱將為：**{final_title_filename}**")
@@ -294,14 +293,24 @@ if "模組 A" in main_mode:
                         process_pdf_to_compressed_images(pdf_file.read(), pdf_file.name)
                     for cloud_pdf_name in selected_cloud_pdfs:
                         c_bytes = fetch_cloud_pdf_bytes(cloud_pdf_name)
-                        if c_bytes: 
-                            process_pdf_to_compressed_images(c_bytes, cloud_pdf_name)
+                        if c_bytes: process_pdf_to_compressed_images(c_bytes, cloud_pdf_name)
 
-                with st.spinner("🧠 輕量視覺包封裝完成！AI 正在一次性極速研讀整份圖文講義出題中..."):
+                with st.spinner("🧠 輕量視覺包封裝完成！AI 正在進行歷史考點深層去重並出題中..."):
                     range_instruction = f"精準鎖定這些影像中的【{page_range}】" if "整份" not in page_range and "全部" not in page_range else "「通盤掃描並融合這幾份講義影像」的完整內容，宏觀地在不同的章節與圖表中提取重點"
+                    
+                    # 🌟 [智慧重構]：將字面防重複升級為醫學「考點去重」機制
                     history_block = ""
                     if history_titles: 
-                        history_block = "⚠️ 絕對禁止重複、改寫或高度雷同以下這些已經出過的舊題目：\n" + "\n".join([f"- {t}" for t in history_titles])
+                        history_block = """
+                        【🚨 歷史考點去重(Tag-based De-duplication) 嚴格指令】：
+                        以下是我提供給你的歷史已出題庫列表。你身為資深教授，請『不要只比對字面文字』，而是必須深入分析以下每一道舊題目背後的『核心醫學考點、生理機制、臨床症狀、藥理靶點或診斷核心』：
+                        """ + "\n".join([f"- 舊題範例: {t}" for t in history_titles[:80]]) + """
+                        
+                        【核心鐵律】：
+                        1. 分析完上述舊題目的核心考點後，本次設計的新題目『絕對禁止』再次重複測驗這些已考過的機制！
+                        2. 請從夾帶的講義影像中，發掘全新、尚未被上述歷史題目覆蓋的生理機轉、鑑別診斷、病理特徵或臨床指標來進行命題。
+                        3. 確保這份全新題庫能擴展學生的知識覆蓋面，測驗完全不同的核心醫學知識點。
+                        """
 
                     if "1. 中文出題" in lang_style:
                         lang_prompt = """
@@ -318,9 +327,10 @@ if "模組 A" in main_mode:
                     prompt = f"""
                     你現在是一位資深的醫學與生物科學教授。請根據我為你提供的這份完整講義影像（包含文字與所有醫學圖表），{range_instruction}，並圍繞核心主題【{topic_name}】出題。
                     
-                    【極度嚴格警告】：我要求你精準輸出「剛好」 {num_questions} 題五選一的單選題。絕對不能多出，也不能少出！
+                    【數量鐵律】：我要求你精準輸出「剛好」 {num_questions} 題五選一的單選題。絕對不能多出，也不能少出！
                     
                     {lang_prompt}
+                    {history_block}
                     
                     【詳解與出處恆定要求】：
                     - 不論前面題目是中文還是英文，【針對各選項之詳解】必須一律使用繁體中文進行極為詳細的專家級辨析。
@@ -331,7 +341,7 @@ if "模組 A" in main_mode:
 
                     輸出的內容必須嚴格遵守以下規則：
                     格式必須是 JSON 格式的列表(Array)，內含多個物件，每個物件的Key必須嚴格為："題目內容", "選項A", "選項B", "選項C", "選項D", "選項E", "正確答案", "針對各選項之詳解", "出處"
-                    請直接輸出完整的 JSON 陣列，不要包含 ```json 等 any Markdown 外包裝字串。
+                    請直接輸出完整的 JSON 陣列，不要包含 ```json 等任何 Markdown 外包裝字串。
                     """
                     contents_payload.append(prompt)
 
