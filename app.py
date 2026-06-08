@@ -125,7 +125,7 @@ def generate_content_via_http_with_retry(contents_list, api_key, max_retries=4):
             raise Exception(f"Google 門口回應錯誤 ({resp.status_code}): {resp.text}")
 
 # ==============================================================================
-# 🌟 模組 A：全自動講義圖文出題系統 (純文字直通降維版)
+# 🌟 模組 A：全自動講義圖文出題系統
 # ==============================================================================
 if "模組 A" in main_mode:
     st.subheader("📚 模式 A：講義智慧出題（503 免疫秒速通關版）")
@@ -276,26 +276,27 @@ if "模組 A" in main_mode:
         final_title_filename = f"{subject_name}_{teacher_name}_{topic_name}_{remarks}"
         st.info(f"📁 系統預覽輸出名稱將為：**{final_title_filename}**")
 
-        if st.button("⚡ 開始全自動雙模融合出題 ⚡", use_container_width=True):
+        if st.button("⚡ 開始全全自動雙模融合出題 ⚡", use_container_width=True):
             try:
-                # 🌟 [降維優化]：完全使用純文字串聯，徹底封印 503 大坑
-                combined_text_payload = ""
-                
-                def process_pdf_to_clean_text(pdf_bytes, pdf_name):
-                    nonlocal combined_text_payload
+                # 🌟 [結構重構修復]：捨棄 nonlocal，改用正規的乾淨 return 傳值，永久根除 SyntaxError
+                def extract_clean_text_from_pdf(pdf_bytes, pdf_name):
+                    chunk_text = ""
                     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
                     for i in range(len(doc)):
                         page = doc.load_page(i)
-                        text = page.get_text() # 本地秒速萃取純文字，不走網路
+                        text = page.get_text()
                         if text:
-                            combined_text_payload += f"\n\n=== 【{pdf_name}】第 {i+1} 頁 ===\n{text}"
+                            chunk_text += f"\n\n=== 【{pdf_name}】第 {i+1} 頁 ===\n{text}"
+                    return chunk_text
 
+                combined_text_payload = ""
                 with st.spinner("🔍 正在啟動本地高效文字萃取引擎..."):
                     for pdf_file in uploaded_pdfs: 
-                        process_pdf_to_clean_text(pdf_file.read(), pdf_file.name)
+                        combined_text_payload += extract_clean_text_from_pdf(pdf_file.read(), pdf_file.name)
                     for cloud_pdf_name in selected_cloud_pdfs:
                         c_bytes = fetch_cloud_pdf_bytes(cloud_pdf_name)
-                        if c_bytes: process_pdf_to_clean_text(c_bytes, cloud_pdf_name)
+                        if c_bytes: 
+                            combined_text_payload += extract_clean_text_from_pdf(c_bytes, cloud_pdf_name)
 
                 with st.spinner("🧠 文字包封裝完成！AI 正在進行歷史考點深層去重並出題中..."):
                     range_instruction = f"精準鎖定這些講義文字內容中的【{page_range}】" if "整份" not in page_range and "全部" not in page_range else "「通盤掃描並融合這幾份講義文字」的完整內容，宏觀地在不同的章節與核心觀念中提取重點"
@@ -347,7 +348,6 @@ if "模組 A" in main_mode:
                     {combined_text_payload}
                     """
 
-                    # 🚀 純文字發送！直接降維打擊，完美保證 100% 繞過 503 流量風控牆！
                     clean_response = generate_content_via_http_with_retry([prompt], api_key)
                     
                     clean_response = clean_response.strip()
@@ -467,7 +467,7 @@ if "模組 A" in main_mode:
                 st.download_button("📄 下載精修 Word 試卷 (.docx)", data=st.session_state["generated_word_a"], file_name=f"{s_name}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True)
 
 # ==============================================================================
-# 🌟 模組 B：現成題目自動配詳解系統 (不變)
+# 🌟 模組 B：現成題目自動配詳解系統
 # ==============================================================================
 elif "模組 B" in main_mode:
     st.subheader("📝 模式 B：現成題目自動配詳解（超輕量・不消耗 Token）")
@@ -492,6 +492,7 @@ elif "模組 B" in main_mode:
                 st.stop()
 
             start_q_num_b = st.number_input("🔢 設定「起始題號」", min_value=1, max_value=999, value=1, step=1, key="mode_b_qnum")
+            
             end_q_num_b = start_q_num_b + len(df_input) - 1
             calculated_remarks_b = f"{start_q_num_b:02d}~{end_q_num_b:02d}"
 
@@ -652,7 +653,7 @@ elif "模組 B" in main_mode:
             st.error(f"讀取 Excel 檔案發生錯誤：{e}")
 
 # ==============================================================================
-# 🌟 模組 C：既有題庫已含詳解 Excel ➡️ 直接轉成 Word 考卷 (不變)
+# 🌟 模組 C：既有題庫已含詳解 Excel ➡️ 直接轉成 Word 考卷
 # ==============================================================================
 else:
     st.subheader("📄 模式 C：Excel 已含詳解 ➡️ 直接高品質渲染 Word 考卷")
@@ -680,6 +681,7 @@ else:
                 st.stop()
 
             start_q_num_c = st.number_input("🔢 設定「起始題號」", min_value=1, max_value=999, value=1, step=1, key="mode_c_qnum")
+            
             end_q_num_c = start_q_num_c + len(df_input_c) - 1
             calculated_remarks_c = f"{start_q_num_c:02d}~{end_q_num_c:02d}"
 
