@@ -22,22 +22,36 @@ from docx.oxml.ns import qn
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 # ==================== 0. 全域常規樣式與字元定義 ====================
+# 使用 chr(96) * 3 動態拼接三個反引號，100% 避免 Git 與 Streamlit Cloud 語法截斷 Bug
 TRIPLE_BACKTICK = chr(96) * 3
 BT_JSON = TRIPLE_BACKTICK + "json"
 BT_ONLY = TRIPLE_BACKTICK
 
 def sanitize_f(name): 
+    """全域共用的檔名非法字元過濾器"""
     return re.sub(r'[\\/:*?"<>|]', '_', str(name))
 
+# 共享的 Excel 格式化美化參數
 EXCEL_COL_WIDTHS = {
-    'A': 8, 'B': 45, 'C': 30, 'D': 30, 'E': 30, 
-    'F': 30, 'G': 30, 'H': 15, 'I': 60, 'J': 40
+    'A': 8,   # 題號
+    'B': 45,  # 題目內容
+    'C': 30,  # 選項A
+    'D': 30,  # 選項B
+    'E': 30,  # 選項C
+    'F': 30,  # 選項D
+    'G': 30,  # 選項E
+    'H': 15,  # 正確答案
+    'I': 60,  # 針對各選項之詳解
+    'J': 40   # 出處
 }
 EXCEL_BORDER = Border(
-    top=Side(style='thin'), bottom=Side(style='thin'), 
-    left=Side(style='thin'), right=Side(style='thin')
+    top=Side(style='thin'), 
+    bottom=Side(style='thin'), 
+    left=Side(style='thin'), 
+    right=Side(style='thin')
 )
 
+# 網頁配置
 st.set_page_config(page_title="AI 醫學共筆題庫工作站", page_icon="🧠", layout="centered")
 
 st.title("🧠 AI 醫學共筆題庫三模工作站")
@@ -59,6 +73,7 @@ with st.sidebar:
     st.markdown("---")
     st.caption("💡 提示：本工作站全面採用底層 HTTP 直連技術。全新『模組 C』為純排版引擎，完全不消耗任何 API 額度且無需金鑰驗證。")
 
+# ==================== 🌟 共享的終極單發 HTTP 直連函數 ====================
 def generate_content_via_http_with_retry(contents_list, api_key, max_retries=4):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
     
@@ -66,7 +81,12 @@ def generate_content_via_http_with_retry(contents_list, api_key, max_retries=4):
     for item in contents_list:
         if isinstance(item, dict) and item.get("mime_type") == "image/jpeg":
             b64_data = base64.b64encode(item["data"]).decode('utf-8')
-            parts.append({"inlineData": {"mimeType": "image/jpeg", "data": b64_data}})
+            parts.append({
+                "inlineData": {
+                    "mimeType": "image/jpeg",
+                    "data": b64_data
+                }
+            })
         else:
             parts.append({"text": str(item)})
 
@@ -91,10 +111,15 @@ def generate_content_via_http_with_retry(contents_list, api_key, max_retries=4):
 # ==================== 🗂️ 全新三功能切換導覽器 ====================
 main_mode = st.radio(
     "🎯 請選擇您目前想要使用的共筆功能模組：",
-    ["📚 模組 A：講義圖文智慧出題", "📝 模組 B：現成題目自動配詳解", "📄 模組 C：既有題庫 Excel ➡️ 轉 Word 考卷"],
+    [
+        "📚 模組 A：講義圖文智慧出題", 
+        "📝 模組 B：現成題目自動配詳解", 
+        "📄 模組 C：既有題庫 Excel ➡️ 轉 Word 考卷"
+    ],
     index=0,
     horizontal=True
 )
+
 st.markdown("---")
 
 # ==============================================================================
@@ -113,30 +138,56 @@ if "模組 A" in main_mode:
     GITHUB_REPO = "20260603--Ver.2_questionbankgenerator"
     GITHUB_FOLDER_HIST = "history_db"          
     GITHUB_FOLDER_PDF = "current_materials"    
+
     encoded_user = urllib.parse.quote(GITHUB_USER)
     encoded_repo = urllib.parse.quote(GITHUB_REPO)
 
     github_api_hist_url = f"https://api.github.com/repos/{encoded_user}/{encoded_repo}/contents/{urllib.parse.quote(GITHUB_FOLDER_HIST)}"
     file_options = ["❌ 不使用歷史資料（全新出題）"]
     all_excel_files = [] 
+
     try:
         req = urllib.request.Request(github_api_hist_url, headers={'User-Agent': 'Mozilla/5.0'})
         with urllib.request.urlopen(req) as response:
-            for item in json.loads(response.read().decode()):
-                if item['type'] == 'file' and item['name'].endswith('.xlsx'): all_excel_files.append(item['name'])
-    except: pass
+            api_data = json.loads(response.read().decode())
+        for item in api_data:
+            if item['type'] == 'file' and item['name'].endswith('.xlsx'): 
+                all_excel_files.append(item['name'])
+    except Exception:
+        try:
+            html_url = f"https://github.com/{encoded_user}/{encoded_repo}/tree/main/{urllib.parse.quote(GITHUB_FOLDER_HIST)}"
+            req = urllib.request.Request(html_url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req) as resp: 
+                html_text = resp.read().decode('utf-8')
+            all_excel_files = list(set(re.findall(r'title="([^"]+\.xlsx)"', html_text)))
+        except: 
+            pass
+
     if all_excel_files:
         file_options.append("💥 比對資料夾內【所有檔案】（全面防重複）")
-        for f in all_excel_files: file_options.append(f)
+        for f in all_excel_files: 
+            file_options.append(f)
 
     cloud_pdf_files = []
     github_api_pdf_url = f"https://api.github.com/repos/{encoded_user}/{encoded_repo}/contents/{urllib.parse.quote(GITHUB_FOLDER_PDF)}"
+
     try:
         req = urllib.request.Request(github_api_pdf_url, headers={'User-Agent': 'Mozilla/5.0'})
         with urllib.request.urlopen(req) as response:
-            for item in json.loads(response.read().decode()):
-                if item['type'] == 'file' and item['name'].lower().endswith('.pdf'): cloud_pdf_files.append(item['name'])
-    except: pass
+            pdf_api_data = json.loads(response.read().decode())
+        for item in pdf_api_data:
+            if item['type'] == 'file' and item['name'].lower().endswith('.pdf'): 
+                cloud_pdf_files.append(item['name'])
+    except Exception:
+        try:
+            html_url = f"https://github.com/{encoded_user}/{encoded_repo}/tree/main/{urllib.parse.quote(GITHUB_FOLDER_PDF)}"
+            req = urllib.request.Request(html_url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req) as resp: 
+                html_text = resp.read().decode('utf-8')
+            found_pdfs = re.findall(r'title="([^"]+\.[pP][dD][fF])"', html_text)
+            cloud_pdf_files = list(set([urllib.parse.unquote(p) for p in found_pdfs]))
+        except Exception: 
+            pass
 
     history_titles = []
     with st.sidebar:
@@ -158,12 +209,15 @@ if "模組 A" in main_mode:
             with urllib.request.urlopen(req) as resp: 
                 df = pd.read_excel(io.BytesIO(resp.read()))
             q_col = next((c for c in df.columns if any(k in str(c) for k in ["題目", "Question"])), None)
-            if q_col: return df[q_col].dropna().astype(str).tolist()
-        except: pass
+            if q_col: 
+                return df[q_col].dropna().astype(str).tolist()
+        except: 
+            pass
         return []
 
     if "【所有檔案】" in selected_mode:
-        for f in all_excel_files: history_titles.extend(fetch_excel_titles(f))
+        for f in all_excel_files: 
+            history_titles.extend(fetch_excel_titles(f))
     elif selected_mode != "❌ 不使用歷史資料（全新出題）":
         history_titles = fetch_excel_titles(selected_mode)
 
@@ -172,8 +226,16 @@ if "模組 A" in main_mode:
         raw_url = f"https://raw.githubusercontent.com/{encoded_user}/{encoded_repo}/main/{GITHUB_FOLDER_PDF}/{encoded_name}"
         try:
             req = urllib.request.Request(raw_url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req) as resp: return resp.read()
-        except: return None
+            with urllib.request.urlopen(req) as resp: 
+                return resp.read()
+        except:
+            try:
+                raw_url_alt = f"https://github.com/{encoded_user}/{encoded_repo}/raw/main/{GITHUB_FOLDER_PDF}/{encoded_name}"
+                req = urllib.request.Request(raw_url_alt, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req) as resp: 
+                    return resp.read()
+            except: 
+                return None
 
     uploaded_pdfs = st.file_uploader("從本機電腦上傳新講義 PDF (可多選)", type=["pdf"], accept_multiple_files=True)
     total_pdf_count = len(uploaded_pdfs) + len(selected_cloud_pdfs)
@@ -182,19 +244,15 @@ if "模組 A" in main_mode:
         st.markdown(f"📊 **目前已鎖定講義總數：{total_pdf_count} 份**")
         
         col_q1, col_q2, col_q3 = st.columns(3)
-        with col_q1: page_range = st.text_input("想根據哪幾頁出題？", "整份")
-        with col_q2: num_questions = st.number_input("預計生成題數", min_value=1, max_value=100, value=10)
-        with col_q3: start_q_num = st.number_input("🔢 設定「起始題號」", min_value=1, max_value=999, value=1, step=1, key="mode_a_qnum")
+        with col_q1: 
+            page_range = st.text_input("想根據哪幾頁出題？", "整份")
+        with col_q2: 
+            num_questions = st.number_input("預計生成題數", min_value=1, max_value=100, value=10)
+        with col_q3: 
+            start_q_num = st.number_input("🔢 設定「起始題號」", min_value=1, max_value=999, value=1, step=1, key="mode_a_qnum")
 
         st.markdown("---")
-        st.subheader("🌐 語言與標題設定")
-
-        # 🌟 新增：出題語言動態切換器
-        lang_mode = st.radio(
-            "請選擇題目與選項的語言模式：",
-            ["🇹🇼 中文為主 (專有名詞附英文)", "🇺🇸 全英文 (Full English)"],
-            horizontal=True
-        )
+        st.subheader("🏷️ 設定大標題與檔名")
         
         end_q_num = start_q_num + num_questions - 1
         default_remarks = f"{start_q_num:02d}~{end_q_num:02d}"
@@ -223,35 +281,32 @@ if "模組 A" in main_mode:
                         contents_payload.append({"mime_type": "image/jpeg", "data": img_data})
 
                 with st.spinner("📷 正在為整包講義與醫療圖表進行極速視覺轉碼與大瘦身..."):
-                    for pdf_file in uploaded_pdfs: process_pdf_to_compressed_images(pdf_file.read(), pdf_file.name)
+                    for pdf_file in uploaded_pdfs: 
+                        process_pdf_to_compressed_images(pdf_file.read(), pdf_file.name)
                     for cloud_pdf_name in selected_cloud_pdfs:
                         c_bytes = fetch_cloud_pdf_bytes(cloud_pdf_name)
-                        if c_bytes: process_pdf_to_compressed_images(c_bytes, cloud_pdf_name)
+                        if c_bytes: 
+                            process_pdf_to_compressed_images(c_bytes, cloud_pdf_name)
 
                 with st.spinner("🧠 輕量視覺包封裝完成！AI 正在一次性極速研讀整份圖文講義出題中..."):
                     range_instruction = f"精準鎖定這些影像中的【{page_range}】" if "整份" not in page_range and "全部" not in page_range else "「通盤掃描並融合這幾份講義影像」的完整內容，宏觀地在不同的章節與圖表中提取重點"
-                    history_block = "⚠️ 絕對禁止重複、改寫或高度雷同以下這些已經出過的舊題目：\n" + "\n".join([f"- {t}" for t in history_titles]) if history_titles else ""
-
-                    # 🌟 根據 UI 選擇動態切換提示詞
-                    if "中文" in lang_mode:
-                        lang_rule = "【題目內容】與【選項A】~【選項E】請使用「繁體中文」，但遇到醫學或生物『專有名詞』時，必須以「中文 (英文)」的格式標註英文（例如：心肌梗塞 (Myocardial Infarction)），確保專業度與易讀性。"
-                    else:
-                        lang_rule = "【題目內容】與【選項A】~【選項E】請全部使用「全英文 (Full English)」。"
+                    history_block = ""
+                    if history_titles: 
+                        history_block = "⚠️ 絕對禁止重複、改寫或高度雷同以下這些已經出過的舊題目：\n" + "\n".join([f"- {t}" for t in history_titles])
 
                     prompt = f"""
                     你現在是一位資深的醫學與生物科學教授。請根據我為你提供的這份完整講義影像（包含文字與所有醫學圖表），{range_instruction}，並圍繞核心主題【{topic_name}】出題。
                     
                     【極度嚴格警告】：我要求你精準輸出「剛好」 {num_questions} 題五選一的單選題。絕對不能多出，也不能少出！
+                    
                     請特別發揮你的視覺辨識能力，若講義中有重要的心電圖、流程圖譜或解剖結構，務必將其核心觀念轉化為考題！
                     {history_block}
-                    
                     輸出的內容必須嚴格遵守以下規則：
                     1. 格式必須是 JSON 格式的列表(Array)，內含多個物件，每個物件的Key必須嚴格為："題目內容", "選項A", "選項B", "選項C", "選項D", "選項E", "正確答案", "針對各選項之詳解", "出處"
-                    2. 只有【針對各選項之詳解】與【出處】欄位必須用「繁體中文」詳細解釋。
-                    3. {lang_rule}
+                    2. 只有【針對各選項之詳解】與【出處】欄位必須用繁體中文詳細解釋。
+                    3. 【題目內容】與【選項A】~【選項E】還有【正確答案】請使用「全英文 (Full English)」。
                     4. 【出處】請根據我夾帶圖片前方的文字標籤（例如：=== 【檔名】第 X 頁 ===），精準指出這題是出自哪一個檔案的第幾頁！
                     5. 正確答案（A, B, C, D, E）的總體數量分布要稍微平均一些。
-                    
                     請直接輸出完整的 JSON 陣列，不要包含 ```json 等任何 Markdown 外包裝字串。
                     """
                     contents_payload.append(prompt)
@@ -259,8 +314,10 @@ if "模組 A" in main_mode:
                     clean_response = generate_content_via_http_with_retry(contents_payload, api_key)
                     
                     clean_response = clean_response.strip()
-                    if clean_response.startswith(BT_JSON): clean_response = clean_response.split(BT_JSON)[1].split(BT_ONLY)[0].strip()
-                    elif clean_response.startswith(BT_ONLY): clean_response = clean_response.split(BT_ONLY)[1].split(BT_ONLY)[0].strip()
+                    if clean_response.startswith(BT_JSON): 
+                        clean_response = clean_response.split(BT_JSON)[1].split(BT_ONLY)[0].strip()
+                    elif clean_response.startswith(BT_ONLY): 
+                        clean_response = clean_response.split(BT_ONLY)[1].split(BT_ONLY)[0].strip()
                         
                     raw_questions = json.loads(clean_response)
                     raw_questions = raw_questions[:num_questions]
@@ -271,7 +328,8 @@ if "模組 A" in main_mode:
                     for idx, q in enumerate(raw_questions):
                         current_q_num = int(start_q_num) + idx
                         row_dict = {'題號': current_q_num, '題目內容': str(q.get('題目內容', '')).strip()}
-                        for lbl in opt_labels: row_dict[f'選項{lbl}'] = str(q.get(f'選項{lbl}', '')).strip()
+                        for lbl in opt_labels: 
+                            row_dict[f'選項{lbl}'] = str(q.get(f'選項{lbl}', '')).strip()
                         ans = str(q.get('正確答案', '')).upper().strip()
                         row_dict['正確答案'] = ans if ans in opt_labels else ""
                         row_dict['針對各選項之詳解'] = str(q.get('針對各選項之詳解', '')).strip()
@@ -283,7 +341,8 @@ if "模組 A" in main_mode:
                     excel_out.seek(0)
                     wb = load_workbook(excel_out)
                     ws = wb.active
-                    for letter, width in EXCEL_COL_WIDTHS.items(): ws.column_dimensions[letter].width = width
+                    for letter, width in EXCEL_COL_WIDTHS.items(): 
+                        ws.column_dimensions[letter].width = width
                     for r_idx, row in enumerate(ws.iter_rows(min_row=1, max_row=ws.max_row), 1):
                         for cell in row:
                             cell.border = EXCEL_BORDER
@@ -291,11 +350,13 @@ if "模組 A" in main_mode:
                             if r_idx == 1:
                                 cell.font = Font(bold=True)
                                 cell.alignment = Alignment(horizontal='center', vertical='center')
-                            if cell.column_letter in ['A', 'H']: cell.alignment = Alignment(horizontal='center', vertical='center')
+                            if cell.column_letter in ['A', 'H']: 
+                                cell.alignment = Alignment(horizontal='center', vertical='center')
                             if r_idx > 1:
                                 cw = EXCEL_COL_WIDTHS.get(cell.column_letter, 20)
                                 est = math.ceil((len(str(cell.value)) * 1.8) / cw)
-                                if est > 1: ws.row_dimensions[r_idx].height = est * 18
+                                if est > 1: 
+                                    ws.row_dimensions[r_idx].height = est * 18
                     final_excel_bytes = io.BytesIO()
                     wb.save(final_excel_bytes)
 
@@ -337,7 +398,8 @@ if "模組 A" in main_mode:
                                     lp.add_run(m.group(0)).bold = True
                                     lp.runs[-1].font.color.rgb = PURPLE
                                     lp.add_run(line.strip()[len(m.group(0)):]).font.color.rgb = PURPLE
-                                else: lp.add_run(line.strip()).font.color.rgb = PURPLE
+                                else: 
+                                    lp.add_run(line.strip()).font.color.rgb = PURPLE
                         src = str(r['出處'])
                         if src and src.lower() != "nan":
                             sp = doc.add_paragraph()
@@ -360,9 +422,12 @@ if "模組 A" in main_mode:
         if "generated_excel_a" in st.session_state and "generated_word_a" in st.session_state:
             st.success("🎉 模式 A：講義題庫與試卷皆已設計完成！請下載：")
             s_name = sanitize_f(st.session_state["saved_exam_title_a"])
+            
             dl_col1, dl_col2 = st.columns(2)
-            with dl_col1: st.download_button("📊 下載精修 Excel 題庫 (.xlsx)", data=st.session_state["generated_excel_a"], file_name=f"{s_name}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
-            with dl_col2: st.download_button("📄 下載精修 Word 試卷 (.docx)", data=st.session_state["generated_word_a"], file_name=f"{s_name}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True)
+            with dl_col1:
+                st.download_button("📊 下載精修 Excel 題庫 (.xlsx)", data=st.session_state["generated_excel_a"], file_name=f"{s_name}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+            with dl_col2:
+                st.download_button("📄 下載精修 Word 試卷 (.docx)", data=st.session_state["generated_word_a"], file_name=f"{s_name}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True)
 
 # ==============================================================================
 # 🌟 模組 B：現成題目自動配詳解系統
@@ -393,7 +458,9 @@ elif "模組 B" in main_mode:
                 st.error("❌ Excel 內找不到對應的『題目內容』或『選項』表頭欄位，請檢查 Excel 架構。")
                 st.stop()
 
+            # 設定起始題號與動態檔名組裝
             start_q_num_b = st.number_input("🔢 設定「起始題號」", min_value=1, max_value=999, value=1, step=1, key="mode_b_qnum")
+            
             end_q_num_b = start_q_num_b + len(df_input) - 1
             default_remarks_b = f"{start_q_num_b:02d}~{end_q_num_b:02d}"
 
@@ -402,6 +469,7 @@ elif "模組 B" in main_mode:
             col_t1_b, col_t2_b = st.columns(2)
             with col_t1_b: subject_name_b = st.text_input("科目名稱", "生理學", key="sub_b")
             with col_t2_b: teacher_name_b = st.text_input("老師名稱", "王大明", key="tea_b")
+                
             col_t3_b, col_t4_b = st.columns(2)
             with col_t3_b: topic_name_b = st.text_input("課堂主題", "心血管系統", key="top_b")
             with col_t4_b: remarks_b = st.text_input("備註 (預設為題號範圍)", default_remarks_b, key="rem_b")
@@ -425,6 +493,7 @@ elif "模組 B" in main_mode:
                 try:
                     with st.spinner("🧠 正在啟動醫學核心知識庫，逐題補全詳解中... 請稍候"):
                         input_data_json = json.dumps(cleaned_questions, ensure_ascii=False)
+                        
                         prompt = f"""
                         你現在是一位資深的醫學與生物科學教授。請根據我提供給你的 JSON 題目列表，【原封不動】地保留題目內容與選項，並補上最精準的【正確答案】以及極為詳細的【針對各選項之詳解】。
                         嚴格規則：
@@ -433,13 +502,19 @@ elif "模組 B" in main_mode:
                         3. 【正確答案】請固定輸出大寫字母（A, B, C, D 或 E）。
                         4. 輸出格式必須嚴格符合 JSON 列表(Array)，Key 必須為："題目內容", "選項A", "選項B", "選項C", "選項D", "選項E", "正確答案", "針對各選項之詳解"
                         請直接輸出完整的 JSON 陣列，不要包含 ```json 等包裝。
+
                         原始題目列表：
                         {input_data_json}
                         """
+                        
                         ai_response = generate_content_via_http_with_retry([prompt], api_key)
+                        
                         ai_response = ai_response.strip()
-                        if ai_response.startswith(BT_JSON): ai_response = ai_response.split(BT_JSON)[1].split(BT_ONLY)[0].strip()
-                        elif ai_response.startswith(BT_ONLY): ai_response = ai_response.split(BT_ONLY)[1].split(BT_ONLY)[0].strip()
+                        if ai_response.startswith(BT_JSON): 
+                            ai_response = ai_response.split(BT_JSON)[1].split(BT_ONLY)[0].strip()
+                        elif ai_response.startswith(BT_ONLY): 
+                            ai_response = ai_response.split(BT_ONLY)[1].split(BT_ONLY)[0].strip()
+                            
                         raw_results = json.loads(ai_response)
 
                     with st.spinner("🎨 詳解補全完成！正在套用高質感格式排版引擎..."):
@@ -448,7 +523,8 @@ elif "模組 B" in main_mode:
                         for idx, q in enumerate(raw_results):
                             current_q_num = int(start_q_num_b) + idx
                             row_dict = {'題號': current_q_num, '題目內容': str(q.get('題目內容', '')).strip()}
-                            for lbl in opt_labels: row_dict[f'選項{lbl}'] = str(q.get(f'選項{lbl}', '')).strip()
+                            for lbl in opt_labels: 
+                                row_dict[f'選項{lbl}'] = str(q.get(f'選項{lbl}', '')).strip()
                             ans = str(q.get('正確答案', '')).upper().strip()
                             row_dict['正確答案'] = ans if ans in opt_labels else ""
                             row_dict['針對各選項之詳解'] = str(q.get('針對各選項之詳解', '')).strip()
@@ -460,7 +536,8 @@ elif "模組 B" in main_mode:
                         excel_out_b.seek(0)
                         wb_b = load_workbook(excel_out_b)
                         ws_b = wb_b.active
-                        for letter, width in EXCEL_COL_WIDTHS.items(): ws_b.column_dimensions[letter].width = width
+                        for letter, width in EXCEL_COL_WIDTHS.items(): 
+                            ws_b.column_dimensions[letter].width = width
                         for r_idx, row in enumerate(ws_b.iter_rows(min_row=1, max_row=ws_b.max_row), 1):
                             for cell in row:
                                 cell.border = EXCEL_BORDER
@@ -468,11 +545,13 @@ elif "模組 B" in main_mode:
                                 if r_idx == 1:
                                     cell.font = Font(bold=True)
                                     cell.alignment = Alignment(horizontal='center', vertical='center')
-                                if cell.column_letter in ['A', 'H']: cell.alignment = Alignment(horizontal='center', vertical='center')
+                                if cell.column_letter in ['A', 'H']: 
+                                    cell.alignment = Alignment(horizontal='center', vertical='center')
                                 if r_idx > 1:
                                     cw = EXCEL_COL_WIDTHS.get(cell.column_letter, 20)
                                     est = math.ceil((len(str(cell.value)) * 1.8) / cw)
-                                    if est > 1: ws_b.row_dimensions[r_idx].height = est * 18
+                                    if est > 1: 
+                                        ws_b.row_dimensions[r_idx].height = est * 18
                         final_excel_bytes_b = io.BytesIO()
                         wb_b.save(final_excel_bytes_b)
 
@@ -514,7 +593,8 @@ elif "模組 B" in main_mode:
                                         lp.add_run(m.group(0)).bold = True
                                         lp.runs[-1].font.color.rgb = PURPLE
                                         lp.add_run(line.strip()[len(m.group(0)):]).font.color.rgb = PURPLE
-                                    else: lp.add_run(line.strip()).font.color.rgb = PURPLE
+                                    else: 
+                                        lp.add_run(line.strip()).font.color.rgb = PURPLE
                             doc_b.add_paragraph("")
 
                         final_word_bytes_b = io.BytesIO()
@@ -531,8 +611,10 @@ elif "模組 B" in main_mode:
                 st.success("🎉 模式 B：現成題目之專家詳解已全數配對補全！請下載：")
                 s_name_b = sanitize_f(st.session_state["saved_exam_title_b"])
                 dl_col1_b, dl_col2_b = st.columns(2)
-                with dl_col1_b: st.download_button("📊 下載附詳解題庫 (.xlsx)", data=st.session_state["sol_excel_b"], file_name=f"{s_name_b}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
-                with dl_col2_b: st.download_button("📄 下載附詳解試卷 (.docx)", data=st.session_state["sol_word_b"], file_name=f"{s_name_b}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True)
+                with dl_col1_b: 
+                    st.download_button("📊 下載附詳解題庫 (.xlsx)", data=st.session_state["sol_excel_b"], file_name=f"{s_name_b}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+                with dl_col2_b: 
+                    st.download_button("📄 下載附詳解試卷 (.docx)", data=st.session_state["sol_word_b"], file_name=f"{s_name_b}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True)
 
         except Exception as e:
             st.error(f"讀取 Excel 檔案發生錯誤：{e}")
@@ -565,7 +647,9 @@ else:
                 st.error("❌ 找不到基本的『題目內容』或『選項』欄位，請確認 Excel 表頭。")
                 st.stop()
 
+            # 設定起始題號與動態檔名組裝
             start_q_num_c = st.number_input("🔢 設定「起始題號」", min_value=1, max_value=999, value=1, step=1, key="mode_c_qnum")
+            
             end_q_num_c = start_q_num_c + len(df_input_c) - 1
             default_remarks_c = f"{start_q_num_c:02d}~{end_q_num_c:02d}"
 
@@ -574,6 +658,7 @@ else:
             col_t1_c, col_t2_c = st.columns(2)
             with col_t1_c: subject_name_c = st.text_input("科目名稱", "生理學", key="sub_c")
             with col_t2_c: teacher_name_c = st.text_input("老師名稱", "王大明", key="tea_c")
+                
             col_t3_c, col_t4_c = st.columns(2)
             with col_t3_c: topic_name_c = st.text_input("課堂主題", "心血管系統", key="top_c")
             with col_t4_c: remarks_c = st.text_input("備註 (預設為題號範圍)", default_remarks_c, key="rem_c")
@@ -583,12 +668,14 @@ else:
 
             if st.button("📥 一鍵原封不動轉換為 Word 試卷 📥", use_container_width=True):
                 with st.spinner("🎨 正在啟動排版引擎，進行字型美化、段落縮排與高亮著色中..."):
+                    
                     doc_c = Document()
                     sec_c = doc_c.sections[0]
                     sec_c.top_margin = sec_c.bottom_margin = sec_c.left_margin = sec_c.right_margin = Cm(1.27)
                     doc_c.styles['Normal'].font.name = 'Times New Roman'
                     doc_c.styles['Normal'].element.rPr.rFonts.set(qn('w:eastAsia'), '微軟正黑體')
                     doc_c.styles['Normal'].font.size = Pt(12)
+                    
                     PURPLE, BLUE = RGBColor(112, 48, 160), RGBColor(0, 50, 150)
                     
                     title_p = doc_c.add_paragraph()
@@ -600,6 +687,7 @@ else:
 
                     for idx, row in df_input_c.iterrows():
                         current_q_num = int(start_q_num_c) + idx
+                        
                         q_txt = str(row[col_q]).strip()
                         doc_c.add_paragraph(f"{current_q_num}. {q_txt}").paragraph_format.space_after = Pt(6)
                         
@@ -624,6 +712,7 @@ else:
                                 h = doc_c.add_paragraph()
                                 h.paragraph_format.space_before, h.paragraph_format.space_after = Pt(4), Pt(0)
                                 run = h.add_run("詳解 :"); run.bold, run.font.color.rgb = True, PURPLE
+                                
                                 for line in expl_txt.split('\n'):
                                     if not line.strip(): continue
                                     lp = doc_c.add_paragraph()
