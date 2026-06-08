@@ -63,7 +63,8 @@ try:
 except Exception: 
     pass
 
-with St.sidebar:
+# 🌟 這裡修正了！將原本錯誤的 St 改回正確的小寫 st
+with st.sidebar:
     st.header("🔑 API 金鑰配置")
     user_live_key = st.text_input("請輸入 API Key：", value=env_key if env_key else "", type="password")
     api_key = user_live_key.strip() if user_live_key else env_key
@@ -261,7 +262,6 @@ if "模組 A" in main_mode:
         st.markdown("---")
         st.subheader("🏷️ 設定大標題與檔名")
         
-        # 🌟 修正點 1：動態計算題號區間並強制同步到 session_state 
         end_q_num = start_q_num + num_questions - 1
         calculated_remarks_a = f"{start_q_num:02d}~{end_q_num:02d}"
 
@@ -272,7 +272,6 @@ if "模組 A" in main_mode:
         col_t3, col_t4 = st.columns(2)
         with col_t3: topic_name = st.text_input("課堂主題", "心血管系統", key="top_a")
         with col_t4: 
-            # 透過 value=calculated_remarks_a 讓元件每次隨上方更動而重繪
             remarks = st.text_input("備註 (預設為題號範圍)", value=calculated_remarks_a, key="rem_a")
 
         final_title_filename = f"{subject_name}_{teacher_name}_{topic_name}_{remarks}"
@@ -313,7 +312,7 @@ if "模組 A" in main_mode:
                     else:
                         lang_prompt = """
                         【語系要求】：
-                        - 每個物件中的「題目內容」與「選項A」~「選項E'] 必須完全使用純英文 (Full English) 撰寫。符合美國醫學執照考試 (USMLE) 或是全英文期末考試的專業醫學出題邏輯。
+                        - 每個物件中的「題目內容」與「選項A」~「選項E」必須完全使用純英文 (Full English) 撰寫。符合美國醫學執照考試 (USMLE) 或是全英文期末考試的專業醫學出題邏輯。
                         """
 
                     prompt = f"""
@@ -332,7 +331,7 @@ if "模組 A" in main_mode:
 
                     輸出的內容必須嚴格遵守以下規則：
                     格式必須是 JSON 格式的列表(Array)，內含多個物件，每個物件的Key必須嚴格為："題目內容", "選項A", "選項B", "選項C", "選項D", "選項E", "正確答案", "針對各選項之詳解", "出處"
-                    請直接輸出完整的 JSON 陣列，不要包含 ```json 等任何 Markdown 外包裝字串。
+                    請直接輸出完整的 JSON 陣列，不要包含 ```json 等 any Markdown 外包裝字串。
                     """
                     contents_payload.append(prompt)
 
@@ -481,7 +480,6 @@ elif "模組 B" in main_mode:
 
             start_q_num_b = st.number_input("🔢 設定「起始題號」", min_value=1, max_value=999, value=1, step=1, key="mode_b_qnum")
             
-            # 🌟 修正點 2：根據上傳的 Excel 長度自動與起始題號計算連動
             end_q_num_b = start_q_num_b + len(df_input) - 1
             calculated_remarks_b = f"{start_q_num_b:02d}~{end_q_num_b:02d}"
 
@@ -494,7 +492,6 @@ elif "模組 B" in main_mode:
             col_t3_b, col_t4_b = st.columns(2)
             with col_t3_b: topic_name_b = st.text_input("課堂主題", "心血管系統", key="top_b")
             with col_t4_b: 
-                # 使用 value 綁定計算結果
                 remarks_b = st.text_input("備註 (預設為題號範圍)", value=calculated_remarks_b, key="rem_b")
 
             final_title_filename_b = f"{subject_name_b}_{teacher_name_b}_{topic_name_b}_{remarks_b}"
@@ -672,7 +669,6 @@ else:
 
             start_q_num_c = st.number_input("🔢 設定「起始題號」", min_value=1, max_value=999, value=1, step=1, key="mode_c_qnum")
             
-            # 🌟 修正點 3：模組 C 同步加入長度自動連動
             end_q_num_c = start_q_num_c + len(df_input_c) - 1
             calculated_remarks_c = f"{start_q_num_c:02d}~{end_q_num_c:02d}"
 
@@ -685,7 +681,6 @@ else:
             col_t3_c, col_t4_c = st.columns(2)
             with col_t3_c: topic_name_c = st.text_input("課堂主題", "心血管系統", key="top_c")
             with col_t4_c: 
-                # 使用 value 綁定計算結果
                 remarks_c = st.text_input("備註 (預設為題號範圍)", value=calculated_remarks_c, key="rem_c")
 
             final_title_filename_c = f"{subject_name_c}_{teacher_name_c}_{topic_name_c}_{remarks_c}"
