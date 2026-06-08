@@ -27,10 +27,6 @@ TRIPLE_BACKTICK = chr(96) * 3
 BT_JSON = TRIPLE_BACKTICK + "json"
 BT_ONLY = TRIPLE_BACKTICK
 
-def sanitize_f(name): 
-    """全域共用的檔名非法字元過濾器"""
-    return re.sub(r'[\\/:*?"<>|]', '_', str(name))
-
 # 共享的 Excel 格式化美化參數
 EXCEL_COL_WIDTHS = {
     'A': 8,   # 題號
@@ -237,12 +233,14 @@ if "模組 A" in main_mode:
             except: 
                 return None
 
+    # --- 介面渲染與出題參數 ---
     uploaded_pdfs = st.file_uploader("從本機電腦上傳新講義 PDF (可多選)", type=["pdf"], accept_multiple_files=True)
     total_pdf_count = len(uploaded_pdfs) + len(selected_cloud_pdfs)
 
     if total_pdf_count > 0:
         st.markdown(f"📊 **目前已鎖定講義總數：{total_pdf_count} 份**")
         
+        # 第一排：基本設定
         col_q1, col_q2, col_q3 = st.columns(3)
         with col_q1: 
             page_range = st.text_input("想根據哪幾頁出題？", "整份")
@@ -254,17 +252,24 @@ if "模組 A" in main_mode:
         st.markdown("---")
         st.subheader("🏷️ 設定大標題與檔名")
         
+        # 自動計算「幾題到幾題」並補零 (例如 01~10)
         end_q_num = start_q_num + num_questions - 1
         default_remarks = f"{start_q_num:02d}~{end_q_num:02d}"
 
+        # 第二排：動態檔名組裝
         col_t1, col_t2 = st.columns(2)
-        with col_t1: subject_name = st.text_input("科目名稱", "生理學", key="sub_a")
-        with col_t2: teacher_name = st.text_input("老師名稱", "王大明", key="tea_a")
+        with col_t1: 
+            subject_name = st.text_input("科目名稱", "生理學")
+        with col_t2: 
+            teacher_name = st.text_input("老師名稱", "王大明")
             
         col_t3, col_t4 = st.columns(2)
-        with col_t3: topic_name = st.text_input("課堂主題", "心血管系統", key="top_a")
-        with col_t4: remarks = st.text_input("備註 (預設為題號範圍)", default_remarks, key="rem_a")
+        with col_t3: 
+            topic_name = st.text_input("課堂主題", "心血管系統")
+        with col_t4: 
+            remarks = st.text_input("備註 (預設為題號範圍)", default_remarks)
 
+        # 組裝終極檔名與大標題
         final_title_filename = f"{subject_name}_{teacher_name}_{topic_name}_{remarks}"
         st.info(f"📁 系統預覽輸出名稱將為：**{final_title_filename}**")
 
@@ -294,6 +299,7 @@ if "模組 A" in main_mode:
                     if history_titles: 
                         history_block = "⚠️ 絕對禁止重複、改寫或高度雷同以下這些已經出過的舊題目：\n" + "\n".join([f"- {t}" for t in history_titles])
 
+                    # 🌟 加上極度嚴格的題數防呆 Prompt
                     prompt = f"""
                     你現在是一位資深的醫學與生物科學教授。請根據我為你提供的這份完整講義影像（包含文字與所有醫學圖表），{range_instruction}，並圍繞核心主題【{topic_name}】出題。
                     
@@ -320,6 +326,8 @@ if "模組 A" in main_mode:
                         clean_response = clean_response.split(BT_ONLY)[1].split(BT_ONLY)[0].strip()
                         
                     raw_questions = json.loads(clean_response)
+                    
+                    # 🌟 【終極防呆】：Python 物理強制截斷，確保絕對不會超過你指定的題數
                     raw_questions = raw_questions[:num_questions]
 
                 with st.spinner("🎨 題目設計完成！正在套用高質感格式排版引擎..."):
@@ -336,6 +344,7 @@ if "模組 A" in main_mode:
                         row_dict['出處'] = str(q.get('出處', '')).strip()
                         processed_rows.append(row_dict)
 
+                    # --- Excel 格式排版 ---
                     excel_out = io.BytesIO()
                     pd.DataFrame(processed_rows).to_excel(excel_out, index=False)
                     excel_out.seek(0)
@@ -360,6 +369,7 @@ if "模組 A" in main_mode:
                     final_excel_bytes = io.BytesIO()
                     wb.save(final_excel_bytes)
 
+                    # --- Word 格式排版 ---
                     doc = Document()
                     sec = doc.sections[0]
                     sec.top_margin = sec.bottom_margin = sec.left_margin = sec.right_margin = Cm(1.27)
@@ -370,6 +380,7 @@ if "模組 A" in main_mode:
                     
                     title_p = doc.add_paragraph()
                     title_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    # 🌟 寫入動態組合的大標題
                     title_p.add_run(final_title_filename).bold = True
                     title_p.runs[-1].font.size = Pt(16)
 
@@ -414,13 +425,18 @@ if "模組 A" in main_mode:
 
                     st.session_state["generated_excel_a"] = final_excel_bytes.getvalue()
                     st.session_state["generated_word_a"] = final_word_bytes.getvalue()
+                    # 🌟 儲存動態檔案名稱供下載按鈕使用
                     st.session_state["saved_exam_title_a"] = final_title_filename
 
             except Exception as e:
                 st.error(f"出題過程出錯：{e}")
 
+        # 下載按鈕 (模組 A)
         if "generated_excel_a" in st.session_state and "generated_word_a" in st.session_state:
             st.success("🎉 模式 A：講義題庫與試卷皆已設計完成！請下載：")
+            
+            # 使用我們動態生成的檔名（過濾掉不合法字元）
+            def sanitize_f(name): return re.sub(r'[\\/:*?"<>|]', '_', str(name))
             s_name = sanitize_f(st.session_state["saved_exam_title_a"])
             
             dl_col1, dl_col2 = st.columns(2)
@@ -458,24 +474,9 @@ elif "模組 B" in main_mode:
                 st.error("❌ Excel 內找不到對應的『題目內容』或『選項』表頭欄位，請檢查 Excel 架構。")
                 st.stop()
 
-            # 設定起始題號與動態檔名組裝
-            start_q_num_b = st.number_input("🔢 設定「起始題號」", min_value=1, max_value=999, value=1, step=1, key="mode_b_qnum")
-            
-            end_q_num_b = start_q_num_b + len(df_input) - 1
-            default_remarks_b = f"{start_q_num_b:02d}~{end_q_num_b:02d}"
-
-            st.markdown("---")
-            st.subheader("🏷️ 設定大標題與檔名")
-            col_t1_b, col_t2_b = st.columns(2)
-            with col_t1_b: subject_name_b = st.text_input("科目名稱", "生理學", key="sub_b")
-            with col_t2_b: teacher_name_b = st.text_input("老師名稱", "王大明", key="tea_b")
-                
-            col_t3_b, col_t4_b = st.columns(2)
-            with col_t3_b: topic_name_b = st.text_input("課堂主題", "心血管系統", key="top_b")
-            with col_t4_b: remarks_b = st.text_input("備註 (預設為題號範圍)", default_remarks_b, key="rem_b")
-
-            final_title_filename_b = f"{subject_name_b}_{teacher_name_b}_{topic_name_b}_{remarks_b}"
-            st.info(f"📁 系統預覽輸出名稱將為：**{final_title_filename_b}**")
+            col_num_b, col_blank_b = st.columns([1, 2])
+            with col_num_b: 
+                start_q_num_b = st.number_input("🔢 設定「起始題號」", min_value=1, max_value=999, value=1, step=1, key="mode_b_qnum")
 
             cleaned_questions = []
             for idx, row in df_input.iterrows():
@@ -562,10 +563,9 @@ elif "模組 B" in main_mode:
                         doc_b.styles['Normal'].element.rPr.rFonts.set(qn('w:eastAsia'), '微軟正黑體')
                         doc_b.styles['Normal'].font.size = Pt(12)
                         PURPLE = RGBColor(112, 48, 160)
-                        
                         title_p_b = doc_b.add_paragraph()
                         title_p_b.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                        title_p_b.add_run(final_title_filename_b).bold = True
+                        title_p_b.add_run("精修醫學題庫_含專家詳解解說").bold = True
                         title_p_b.runs[-1].font.size = Pt(16)
 
                         for r in processed_rows_b:
@@ -602,19 +602,17 @@ elif "模組 B" in main_mode:
 
                         st.session_state["sol_excel_b"] = final_excel_bytes_b.getvalue()
                         st.session_state["sol_word_b"] = final_word_bytes_b.getvalue()
-                        st.session_state["saved_exam_title_b"] = final_title_filename_b
 
                 except Exception as e:
                     st.error(f"分析過程出錯：{e}")
 
             if "sol_excel_b" in st.session_state and "sol_word_b" in st.session_state:
                 st.success("🎉 模式 B：現成題目之專家詳解已全數配對補全！請下載：")
-                s_name_b = sanitize_f(st.session_state["saved_exam_title_b"])
                 dl_col1_b, dl_col2_b = st.columns(2)
                 with dl_col1_b: 
-                    st.download_button("📊 下載附詳解題庫 (.xlsx)", data=st.session_state["sol_excel_b"], file_name=f"{s_name_b}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+                    st.download_button("📊 下載附詳解題庫 (.xlsx)", data=st.session_state["sol_excel_b"], file_name="精修醫學詳解題庫.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
                 with dl_col2_b: 
-                    st.download_button("📄 下載附詳解試卷 (.docx)", data=st.session_state["sol_word_b"], file_name=f"{s_name_b}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True)
+                    st.download_button("📄 下載附詳解試卷 (.docx)", data=st.session_state["sol_word_b"], file_name="精修醫學詳解試卷.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True)
 
         except Exception as e:
             st.error(f"讀取 Excel 檔案發生錯誤：{e}")
@@ -647,24 +645,11 @@ else:
                 st.error("❌ 找不到基本的『題目內容』或『選項』欄位，請確認 Excel 表頭。")
                 st.stop()
 
-            # 設定起始題號與動態檔名組裝
-            start_q_num_c = st.number_input("🔢 設定「起始題號」", min_value=1, max_value=999, value=1, step=1, key="mode_c_qnum")
-            
-            end_q_num_c = start_q_num_c + len(df_input_c) - 1
-            default_remarks_c = f"{start_q_num_c:02d}~{end_q_num_c:02d}"
-
-            st.markdown("---")
-            st.subheader("🏷️ 設定大標題與檔名")
-            col_t1_c, col_t2_c = st.columns(2)
-            with col_t1_c: subject_name_c = st.text_input("科目名稱", "生理學", key="sub_c")
-            with col_t2_c: teacher_name_c = st.text_input("老師名稱", "王大明", key="tea_c")
-                
-            col_t3_c, col_t4_c = st.columns(2)
-            with col_t3_c: topic_name_c = st.text_input("課堂主題", "心血管系統", key="top_c")
-            with col_t4_c: remarks_c = st.text_input("備註 (預設為題號範圍)", default_remarks_c, key="rem_c")
-
-            final_title_filename_c = f"{subject_name_c}_{teacher_name_c}_{topic_name_c}_{remarks_c}"
-            st.info(f"📁 系統預覽輸出名稱將為：**{final_title_filename_c}**")
+            cc1, cc2 = st.columns(2)
+            with cc1:
+                start_q_num_c = st.number_input("🔢 設定「起始題號」", min_value=1, max_value=999, value=1, step=1, key="mode_c_qnum")
+            with cc2:
+                exam_title_c = st.text_input("📄 Word 考卷大標題", "醫學科綜合測驗題庫")
 
             if st.button("📥 一鍵原封不動轉換為 Word 試卷 📥", use_container_width=True):
                 with st.spinner("🎨 正在啟動排版引擎，進行字型美化、段落縮排與高亮著色中..."):
@@ -680,7 +665,7 @@ else:
                     
                     title_p = doc_c.add_paragraph()
                     title_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                    title_p.add_run(final_title_filename_c).bold = True
+                    title_p.add_run(str(exam_title_c)).bold = True
                     title_p.runs[-1].font.size = Pt(16)
 
                     opt_labels = ['A', 'B', 'C', 'D', 'E']
@@ -739,15 +724,13 @@ else:
                     final_word_bytes_c = io.BytesIO()
                     doc_c.save(final_word_bytes_c)
                     st.session_state["sol_word_c"] = final_word_bytes_c.getvalue()
-                    st.session_state["saved_exam_title_c"] = final_title_filename_c
 
             if "sol_word_c" in st.session_state:
                 st.success("🎉 模式 C：Word 考卷排版渲染已完美達成！請點擊下方按鈕下載：")
-                s_name_c = sanitize_f(st.session_state["saved_exam_title_c"])
                 st.download_button(
                     label="📄 下載精修排版 Word 試卷 (.docx)",
                     data=st.session_state["sol_word_c"],
-                    file_name=f"{s_name_c}.docx",
+                    file_name="已含詳解_精修排版試卷.docx",
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                     use_container_width=True
                 )
