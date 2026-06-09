@@ -22,6 +22,7 @@ from docx.oxml.ns import qn
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 # ==================== 0. 全域常規樣式與字元定義 ====================
+# 使用 chr(96) * 3 動態拼接三個反引號，100% 避免 Git 與 Streamlit Cloud 語法截斷 Bug
 TRIPLE_BACKTICK = chr(96) * 3
 BT_JSON = TRIPLE_BACKTICK + "json"
 BT_ONLY = TRIPLE_BACKTICK
@@ -316,7 +317,7 @@ if "模組 A" in main_mode:
 
 【輸出格式規範】：
 格式必須是標準的 JSON 格式列表(Array)，內含多個物件，每個物件的 Key 必須嚴格為："題目內容", "選項A", "選項B", "選項C", "選項D", "選項E", "正確答案", "針對各選項之詳解", "出處"
-請直接輸出完整的 JSON 陣列，不要包含 ```json 等任何 Markdown 外包裝字串，確保可以被 JSON 引擎直接解析。
+請直接輸出完整的 JSON 陣列，不要包含 Markdown 外包裝字串，確保可以被 JSON 引擎直接解析。
 
 以下是為你夾帶的講義完整純文字文本：
 {combined_text_payload}
@@ -473,7 +474,7 @@ if "模組 A" in main_mode:
                 with dl_col2: st.download_button("📄 下載精修 Word 試卷 (.docx)", data=st.session_state["generated_word_a"], file_name=f"{s_name}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True)
 
 # ==============================================================================
-# 🌟 模組 B：現成題目自動配詳解系統
+# 🌟 模模組 B：現成題目自動配詳解系統
 # ==============================================================================
 elif "模組 B" in main_mode:
     st.subheader("📝 模式 B：現成題目自動配詳解")
@@ -482,6 +483,7 @@ elif "模組 B" in main_mode:
         try:
             df_input = pd.read_excel(uploaded_file)
             st.success(f"📊 成功讀取現有考題！共偵測到 **{len(df_input)}** 道題目。")
+            
             col_q = next((c for c in df_input.columns if any(k in str(c) for k in ["題目", "Question", "內容"])), None)
             col_a = next((c for c in df_input.columns if "A" in str(c)), None)
             col_b = next((c for c in df_input.columns if "B" in str(c)), None)
@@ -527,7 +529,7 @@ elif "模組 B" in main_mode:
                         input_data_json = json.dumps(cleaned_questions, ensure_ascii=False)
                         prompt = f"""你現在是一位資深的醫學與生物科學教授。請根據我提供給你的 JSON 題目列表，【原封不動】地保留題目內容與選項，並補上最精準的【正確答案】以及極為詳細的【針對各選項之詳解】。
                         格式必須符合 JSON 列表(Array)，Key 必須為：\"題目內容\", \"選項A\", \"選項B\", \"選項C\", \"選項D\", \"選項E\", \"正確答案\", \"針對各選項之詳解\"
-                        請直接輸出完整的 JSON 陣列，不要包含 ```json 等外包裝。
+                        請直接輸出完整的 JSON 陣列，不要包含 ```json 等包裝。
                         {input_data_json}"""
                         
                         ai_response = generate_content_via_http_with_retry([prompt], api_key)
@@ -632,7 +634,6 @@ elif "模組 B" in main_mode:
 else:
     st.subheader("📄 模式 C：既有題庫 ➡️ 高品質渲染 Word 考卷 (免金鑰)")
     
-    # 🌟 修正點 1：提供三種上傳/貼上管道
     input_channel = st.radio(
         "📥 請選擇您的資料輸入來源：",
         ["1. 上傳既有含詳解的 Excel (.xlsx)", "2. 上傳 AI 吐出的 JSON 檔案 (.json)", "3. 直接貼上 AI 吐出的 JSON 纯文字"],
@@ -641,9 +642,8 @@ else:
     )
     st.markdown("---")
 
-    raw_items_list = [] # 用來承接清洗後的題目列表
+    raw_items_list = [] 
 
-    # --- 管道 1：Excel 讀取處理 ---
     if "1. 上傳既有" in input_channel:
         uploaded_file_c = st.file_uploader("請選擇 Excel 檔案 (.xlsx)", type=["xlsx"], key="c_xlsx")
         if uploaded_file_c:
@@ -675,7 +675,6 @@ else:
                     st.success(f"📊 成功加載 Excel 題庫！偵測到 **{len(raw_items_list)}** 道題目。")
             except Exception as e: st.error(f"Excel 解析失敗：{e}")
 
-    # --- 管道 2：JSON 檔案上傳處理 ---
     elif "2. 上傳 AI" in input_channel:
         uploaded_json_c = st.file_uploader("請選擇 JSON 檔案 (.json)", type=["json"], key="c_json")
         if uploaded_json_c:
@@ -687,19 +686,123 @@ else:
                 else: st.error("❌ JSON 格式不正確，外層必須是一個列表 (Array)。")
             except Exception as e: st.error(f"JSON 檔案讀取失敗：{e}")
 
-    # --- 管道 3：JSON 文字直接貼上處理 ---
     else:
         text_input_c = st.text_area("請在下方直接貼上 AI 吐出的 JSON 字串內容：", height=250, placeholder='[\n  {\n    "題目內容": "...", \n    "選項A": "..."\n  }\n]')
         if text_input_c.strip():
             try:
                 clean_text = text_input_c.strip()
-                if clean_text.startswith("
-http://googleusercontent.com/immersive_entry_chip/0
-http://googleusercontent.com/immersive_entry_chip/1
+                
+                # 🌟 【這裡完美修復】：改用全域宣告的動態編譯字元變換防護，100% 根除 SyntaxError
+                if clean_text.startswith(BT_JSON): 
+                    clean_text = clean_text.split(BT_JSON)[1].split(BT_ONLY)[0].strip()
+                elif clean_text.startswith(BT_ONLY): 
+                    clean_text = clean_text.split(BT_ONLY)[1].split(BT_ONLY)[0].strip()
+                
+                json_data = json.loads(clean_text)
+                if isinstance(json_data, list):
+                    raw_items_list = json_data
+                    st.success(f"📝 成功辨識複製貼上的 JSON 文字！偵測到 **{len(raw_items_list)}** 道題目。")
+                else: st.error("❌ 貼上的內容格式不合規，外層必須是標準的方括號列表陣列 `[...]`。")
+            except Exception as e: st.error(f"文字 JSON 格式解析失敗，請檢查括號是否完整。錯誤原因: {e}")
 
-### 🎯 這次為你打通的終極工作流：
-1. **零媒介直通車**：你在 A' 複製 Prompt 餵給 ChatGPT/Claude 之後，AI 吐給你的程式碼，你**直接整包複製，來到模組 C 貼上**。
-2. **自動清洗格式**：程式碼內部（第 **352 ~ 354 行**）幫你寫好了 Markdown 標籤自動過濾。就算貼上的文字帶有 ` ```json ` 或 ` ``` `，系統也會自動把它們剝掉，只留下純 JSON 進行結構解析。
-3. **檔名題號完美繼承**：同樣會去讀取你的 JSON 有幾題，在畫面上自動把備註換成補零後的題號範圍（如 `01~10`），並完美組裝大標題！
+    if len(raw_items_list) > 0:
+        start_q_num_c = st.number_input("🔢 設定「起始題號」", min_value=1, max_value=999, value=1, step=1, key="mode_c_qnum")
+        end_q_num_c = start_q_num_c + len(raw_items_list) - 1
+        calculated_remarks_c = f"{start_q_num_c:02d}~{end_q_num_c:02d}"
 
-直接推上 GitHub 測試！現在你的題庫系統已經是地表上最靈活、最沒有破綻的共筆神器了！
+        st.markdown("---")
+        st.subheader("🏷️ 設定大標題與檔名")
+        col_t1_c, col_t2_c = st.columns(2)
+        with col_t1_c: subject_name_c = st.text_input("科目名稱", "生理學", key="sub_c")
+        with col_t2_c: teacher_name_c = st.text_input("老師名稱", "王大明", key="tea_c")
+            
+        col_t3_c, col_t4_c = st.columns(2)
+        with col_t3_c: topic_name_c = st.text_input("課堂主題", "心血管系統", key="top_c")
+        with col_t4_c: remarks_c = st.text_input("備註 (預設為題號範圍)", value=calculated_remarks_c, key="rem_c")
+
+        final_title_filename_c = f"{subject_name_c}_{teacher_name_c}_{topic_name_c}_{remarks_c}"
+        st.info(f"📁 系統預覽輸出名稱將為：**{final_title_filename_c}**")
+
+        if st.button("📥 一鍵原封不動轉換為 Word 試卷 📥", use_container_width=True):
+            try:
+                with st.spinner("🎨 正在啟動排版引擎，進行字型美化、段落縮排與高亮著色中..."):
+                    doc_c = Document()
+                    sec_c = doc_c.sections[0]
+                    sec_c.top_margin = sec_c.bottom_margin = sec_c.left_margin = sec_c.right_margin = Cm(1.27)
+                    doc_c.styles['Normal'].font.name = 'Times New Roman'
+                    doc_c.styles['Normal'].element.rPr.rFonts.set(qn('w:eastAsia'), '微軟正黑體')
+                    doc_c.styles['Normal'].font.size = Pt(12)
+                    
+                    PURPLE, BLUE = RGBColor(112, 48, 160), RGBColor(0, 50, 150)
+                    
+                    title_p = doc_c.add_paragraph()
+                    title_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    title_p.add_run(final_title_filename_c).bold = True
+                    title_p.runs[-1].font.size = Pt(16)
+
+                    opt_labels = ['A', 'B', 'C', 'D', 'E']
+
+                    for idx, item in enumerate(raw_items_list):
+                        current_q_num = int(start_q_num_c) + idx
+                        
+                        q_txt = item.get("題目內容", item.get("題庫內容", ""))
+                        doc_c.add_paragraph(f"{current_q_num}. {q_txt}").paragraph_format.space_after = Pt(6)
+                        
+                        for lbl in opt_labels:
+                            opt_txt = item.get(f"選項{lbl}", "")
+                            if opt_txt:
+                                op = doc_c.add_paragraph(f"({lbl}) {opt_txt}")
+                                op.paragraph_format.left_indent, op.paragraph_format.space_after = Pt(18), Pt(0)
+                        
+                        ans_txt = str(item.get("正確答案", "")).upper().strip()
+                        if ans_txt:
+                            ans_p = doc_c.add_paragraph()
+                            ans_p.paragraph_format.space_before = Pt(6)
+                            ans_p.add_run("Ans : ").bold = True
+                            ans_p.add_run(f"({ans_txt})")
+                        
+                        expl_txt = str(item.get("針對各選項之詳解", item.get("詳解", ""))).strip()
+                        if expl_txt and expl_txt.lower() != "nan":
+                            h = doc_c.add_paragraph()
+                            h.paragraph_format.space_before, h.paragraph_format.space_after = Pt(4), Pt(0)
+                            run = h.add_run("詳解 :"); run.bold, run.font.color.rgb = True, PURPLE
+                            
+                            for line in expl_txt.split('\n'):
+                                if not line.strip(): continue
+                                lp = doc_c.add_paragraph()
+                                lp.paragraph_format.left_indent, lp.paragraph_format.space_after = Pt(18), Pt(2)
+                                m = re.match(r'^([A-F])\s*([\(（].*?[\)隱]|[:：])', line.strip())
+                                if m:
+                                    lp.add_run(m.group(0)).bold = True
+                                    lp.runs[-1].font.color.rgb = PURPLE
+                                    lp.add_run(line.strip()[len(m.group(0)):]).font.color.rgb = PURPLE
+                                else: lp.add_run(line.strip()).font.color.rgb = PURPLE
+                        
+                        src_txt = str(item.get("出處", "")).strip()
+                        if src_txt and src_txt.lower() != "nan":
+                            sp = doc_c.add_paragraph()
+                            sp.paragraph_format.space_before = Pt(2)
+                            sp.add_run("出處 : ").bold = True
+                            sp.runs[-1].font.color.rgb = BLUE
+                            sp.add_run(src_txt).font.color.rgb = BLUE
+                            
+                        doc_c.add_paragraph("")
+
+                    final_word_bytes_c = io.BytesIO()
+                    doc_c.save(final_word_bytes_c)
+                    st.session_state["sol_word_c"] = final_word_bytes_c.getvalue()
+                    st.session_state["saved_exam_title_c"] = final_title_filename_c
+
+            if "sol_word_c" in st.session_state:
+                st.success("🎉 Word 考卷排版渲染已完美達成！請點擊下方按鈕下載：")
+                s_name_c = sanitize_f(st.session_state["saved_exam_title_c"])
+                st.download_button(
+                    label="📄 下載精修排版 Word 試卷 (.docx)",
+                    data=st.session_state["sol_word_c"],
+                    file_name=f"{s_name_c}.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    use_container_width=True
+                )
+
+        except Exception as e:
+            st.error(f"轉換排版過程發生錯誤：{e}")
