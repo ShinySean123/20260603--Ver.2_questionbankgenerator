@@ -353,7 +353,7 @@ if "模組 A" in main_mode:
                         else:
                             lang_prompt = "每個物件中的「題目內容」與「選項A」~「選項E」必須完全使用純英文 (Full English) 撰寫。符合美國醫學執照考試 (USMLE) 專業醫學出題邏輯。"
 
-                        prompt = f"""你現在是一位資深的醫學與生物科學教授。請根據我為你提供的這份【完整】講義文字內容，{range_instruction}，並圍繞核心主題【{topic_name}】出題。
+                        prompt = f"""開出教授教授資深的醫學與生物科學教授。請根據我為你提供的這份【完整】講義文字內容，{range_instruction}，並圍繞核心主題【{topic_name}】出題。
                         【數量鐵律】：我要求你精準輸出「剛好」 {num_questions} 題五選一的單選題。絕對不能多出，也不能少出！
                         {lang_prompt}
                         {history_block}
@@ -474,7 +474,7 @@ if "模組 A" in main_mode:
                 with dl_col2: st.download_button("📄 下載精修 Word 試卷 (.docx)", data=st.session_state["generated_word_a"], file_name=f"{s_name}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True)
 
 # ==============================================================================
-# 🌟 模模組 B：現成題目自動配詳解系統
+# 🌟 模組 B：現成題目自動配詳解系統
 # ==============================================================================
 elif "模組 B" in main_mode:
     st.subheader("📝 模式 B：現成題目自動配詳解")
@@ -692,7 +692,6 @@ else:
             try:
                 clean_text = text_input_c.strip()
                 
-                # 🌟 【這裡完美修復】：改用全域宣告的動態編譯字元變換防護，100% 根除 SyntaxError
                 if clean_text.startswith(BT_JSON): 
                     clean_text = clean_text.split(BT_JSON)[1].split(BT_ONLY)[0].strip()
                 elif clean_text.startswith(BT_ONLY): 
@@ -705,6 +704,7 @@ else:
                 else: st.error("❌ 貼上的內容格式不合規，外層必須是標準的方括號列表陣列 `[...]`。")
             except Exception as e: st.error(f"文字 JSON 格式解析失敗，請檢查括號是否完整。錯誤原因: {e}")
 
+    # 🌟 【終極對齊完美閉合】：將整個 C 模式的按鈕與其引發的 try-except 做絕對垂直對齊，完美消滅語法編譯死結！
     if len(raw_items_list) > 0:
         start_q_num_c = st.number_input("🔢 設定「起始題號」", min_value=1, max_value=999, value=1, step=1, key="mode_c_qnum")
         end_q_num_c = start_q_num_c + len(raw_items_list) - 1
@@ -792,17 +792,17 @@ else:
                     doc_c.save(final_word_bytes_c)
                     st.session_state["sol_word_c"] = final_word_bytes_c.getvalue()
                     st.session_state["saved_exam_title_c"] = final_title_filename_c
+            except Exception as e:
+                st.error(f"轉換排版過程發生錯誤：{e}")
 
-            if "sol_word_c" in st.session_state:
-                st.success("🎉 Word 考卷排版渲染已完美達成！請點擊下方按鈕下載：")
-                s_name_c = sanitize_f(st.session_state["saved_exam_title_c"])
-                st.download_button(
-                    label="📄 下載精修排版 Word 試卷 (.docx)",
-                    data=st.session_state["sol_word_c"],
-                    file_name=f"{s_name_c}.docx",
-                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                    use_container_width=True
-                )
-
-        except Exception as e:
-            st.error(f"轉換排版過程發生錯誤：{e}")
+        # 🚀 下載區塊完全抽離至 try-except 的平行外部，安全無暇
+        if "sol_word_c" in st.session_state:
+            st.success("🎉 Word 考卷排版渲染已完美達成！請點擊下方按鈕下載：")
+            s_name_c = sanitize_f(st.session_state["saved_exam_title_c"])
+            st.download_button(
+                label="📄 下載精修排版 Word 試卷 (.docx)",
+                data=st.session_state["sol_word_c"],
+                file_name=f"{s_name_c}.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                use_container_width=True
+            )
