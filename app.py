@@ -22,6 +22,7 @@ from docx.oxml.ns import qn
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 # ==================== 0. 全域常規樣式與字元定義 ====================
+# 使用 chr(96) * 3 動態拼接三個反引號，100% 避免 Git 與 Streamlit Cloud 語法截斷 Bug
 TRIPLE_BACKTICK = chr(96) * 3
 BT_JSON = TRIPLE_BACKTICK + "json"
 BT_ONLY = TRIPLE_BACKTICK
@@ -101,8 +102,9 @@ def generate_content_via_http_with_retry(contents_list, api_key, max_retries=4):
     payload = {"contents": [{"parts": parts}]}
     headers = {"Content-Type": "application/json"}
 
+    # 🚀 這裡修復了連線網址被 polluted 的問題
     for model_name in models_pool:
-        url = f"[https://generativelanguage.googleapis.com/v1beta/models/](https://generativelanguage.googleapis.com/v1beta/models/){model_name}:generateContent?key={api_key}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
         try:
             resp = requests.post(url, headers=headers, json=payload, timeout=90)
             if resp.status_code == 200:
@@ -121,8 +123,9 @@ def generate_content_via_http_with_retry(contents_list, api_key, max_retries=4):
         if elapsed < REQUIRED_GAP:
             time.sleep(REQUIRED_GAP - elapsed)
             
+        # 🚀 這裡修復了連線網址被 polluted 的問題
         for model_name in models_pool:
-            url = f"[https://generativelanguage.googleapis.com/v1beta/models/](https://generativelanguage.googleapis.com/v1beta/models/){model_name}:generateContent?key={api_key}"
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
             try:
                 resp = requests.post(url, headers=headers, json=payload, timeout=90)
                 if resp.status_code == 200:
@@ -154,7 +157,8 @@ if "模組 A" in main_mode:
     encoded_user = urllib.parse.quote(GITHUB_USER)
     encoded_repo = urllib.parse.quote(GITHUB_REPO)
 
-    github_api_hist_url = f"[https://api.github.com/repos/](https://api.github.com/repos/){encoded_user}/{encoded_repo}/contents/{urllib.parse.quote(GITHUB_FOLDER_HIST)}"
+    # 🚀 這裡修復了 GitHub 讀取網址被 polluted 的問題
+    github_api_hist_url = f"https://api.github.com/repos/{encoded_user}/{encoded_repo}/contents/{urllib.parse.quote(GITHUB_FOLDER_HIST)}"
     file_options = ["❌ 不使用歷史資料（全新出題）"]
     all_excel_files = [] 
 
@@ -166,7 +170,8 @@ if "模組 A" in main_mode:
             if item['type'] == 'file' and item['name'].endswith('.xlsx'): all_excel_files.append(item['name'])
     except Exception:
         try:
-            html_url = f"[https://github.com/](https://github.com/){encoded_user}/{encoded_repo}/tree/main/{urllib.parse.quote(GITHUB_FOLDER_HIST)}"
+            # 🚀 這裡修復了 GitHub 讀取網址被 polluted 的問題
+            html_url = f"https://github.com/{encoded_user}/{encoded_repo}/tree/main/{urllib.parse.quote(GITHUB_FOLDER_HIST)}"
             req = urllib.request.Request(html_url, headers={'User-Agent': 'Mozilla/5.0'})
             with urllib.request.urlopen(req) as resp: html_text = resp.read().decode('utf-8')
             all_excel_files = list(set(re.findall(r'title="([^"]+\.xlsx)"', html_text)))
@@ -177,7 +182,8 @@ if "模組 A" in main_mode:
         for f in all_excel_files: file_options.append(f)
 
     cloud_pdf_files = []
-    github_api_pdf_url = f"[https://api.github.com/repos/](https://api.github.com/repos/){encoded_user}/{encoded_repo}/contents/{urllib.parse.quote(GITHUB_FOLDER_PDF)}"
+    # 🚀 這裡修復了 GitHub 讀取網址被 polluted 的問題
+    github_api_pdf_url = f"https://api.github.com/repos/{encoded_user}/{encoded_repo}/contents/{urllib.parse.quote(GITHUB_FOLDER_PDF)}"
 
     try:
         req = urllib.request.Request(github_api_pdf_url, headers={'User-Agent': 'Mozilla/5.0'})
@@ -187,7 +193,8 @@ if "模組 A" in main_mode:
             if item['type'] == 'file' and item['name'].lower().endswith('.pdf'): cloud_pdf_files.append(item['name'])
     except Exception:
         try:
-            html_url = f"[https://github.com/](https://github.com/){encoded_user}/{encoded_repo}/tree/main/{urllib.parse.quote(GITHUB_FOLDER_PDF)}"
+            # 🚀 這裡修復了 GitHub 讀取網址被 polluted 的問題
+            html_url = f"https://github.com/{encoded_user}/{encoded_repo}/tree/main/{urllib.parse.quote(GITHUB_FOLDER_PDF)}"
             req = urllib.request.Request(html_url, headers={'User-Agent': 'Mozilla/5.0'})
             with urllib.request.urlopen(req) as resp: 
                 html_text = resp.read().decode('utf-8')
@@ -209,7 +216,8 @@ if "模組 A" in main_mode:
 
     def fetch_excel_titles(file_name):
         encoded_name = urllib.parse.quote(file_name)
-        raw_url = f"[https://raw.githubusercontent.com/](https://raw.githubusercontent.com/){encoded_user}/{encoded_repo}/main/{GITHUB_FOLDER_HIST}/{encoded_name}"
+        # 🚀 這裡修復了 GitHub 讀取網址被 polluted 的問題
+        raw_url = f"https://raw.githubusercontent.com/{encoded_user}/{encoded_repo}/main/{GITHUB_FOLDER_HIST}/{encoded_name}"
         try:
             req = urllib.request.Request(raw_url, headers={'User-Agent': 'Mozilla/5.0'})
             with urllib.request.urlopen(req) as resp: 
@@ -226,13 +234,15 @@ if "模組 A" in main_mode:
 
     def fetch_cloud_pdf_bytes(file_name):
         encoded_name = urllib.parse.quote(file_name)
-        raw_url = f"[https://raw.githubusercontent.com/](https://raw.githubusercontent.com/){encoded_user}/{encoded_repo}/main/{GITHUB_FOLDER_PDF}/{file_name}"
+        # 🚀 這裡修復了 GitHub 讀取網址被 polluted 的問題
+        raw_url = f"https://raw.githubusercontent.com/{encoded_user}/{encoded_repo}/main/{GITHUB_FOLDER_PDF}/{file_name}"
         try:
             req = urllib.request.Request(raw_url, headers={'User-Agent': 'Mozilla/5.0'})
             with urllib.request.urlopen(req) as resp: return resp.read()
         except:
             try:
-                raw_url_alt = f"[https://github.com/](https://github.com/){encoded_user}/{encoded_repo}/raw/main/{GITHUB_FOLDER_PDF}/{file_name}"
+                # 🚀 這裡修復了 GitHub 讀取網址被 polluted 的問題
+                raw_url_alt = f"https://github.com/{encoded_user}/{encoded_repo}/raw/main/{GITHUB_FOLDER_PDF}/{file_name}"
                 req = urllib.request.Request(raw_url_alt, headers={'User-Agent': 'Mozilla/5.0'})
                 with urllib.request.urlopen(req) as resp: return resp.read()
             except: return None
@@ -371,7 +381,7 @@ if "模組 A" in main_mode:
                         
                         【🚨 格式與語法輸出鐵律 - 違者拒收】：
                         1. 請「只」輸出標準 JSON 格式列表陣列格式（即以 [ 開頭，以 ] 結尾）。
-                        2. 絕對、嚴禁、不要包含任何 Markdown 外包裝字串！禁止在開頭與結尾夾帶 ```json 等字眼。
+                        2. 絕對、嚴禁、不要包含 any Markdown 外包裝字串！禁止在開頭與結尾夾帶 ```json 等字眼。
                         3. 絕對不要輸出任何多餘的解釋、前言或後記。
                         4. 嚴格注意物件內最後一個欄位與最後一個物件的末尾，【絕對不能】有多餘的逗號。
                         5. 詳解換行請務必使用安全轉義序列「\\\\n」呈現。
@@ -540,18 +550,9 @@ elif "模組 B" in main_mode:
                 try:
                     with st.spinner("🧠 任務封裝完成！正在跨世代智慧調度配對詳解中..."):
                         input_data_json = json.dumps(cleaned_questions, ensure_ascii=False)
-                        
-                        # 🌟 同步補強模組 B 的格式約束
                         prompt = f"""你現在是一位資深的醫學與生物科學教授。請根據我提供給你的 JSON 題目列表，【原封不動】地保留題目內容與選項，並補上最精準的【正確答案】以及極為詳細的【針對各選項之詳解】。
-                        
-                        【🚨 格式與語法輸出鐵律 - 違者拒收】：
-                        1. 請「只」輸出標準 JSON 格式列表陣列格式（即以 [ 開頭，以 ] 結尾）。
-                        2. 絕對、嚴禁、不要包含任何 Markdown 包裝字串！禁止包含 ```json。
-                        3. 絕對不要輸出任何多餘的解釋、前言或後記。
-                        4. 嚴格注意物件內最後一個欄位與最後一個物件的末尾，【絕對不能】有多餘的逗號。
-                        5. 詳解換行請務必使用安全轉義序列「\\\\n」呈現。
-
-                        格式必須嚴格符合 JSON 列表(Array)，Key 必須為："題目內容", "選項A", "選項B", "選項C", "選項D", "選項E", "正確答案", "針對各選項之詳解"
+                        格式必須符合 JSON 列表(Array)，Key 必須為：\"題目內容\", \"選項A\", \"選項B\", \"選項C\", \"選項D\", \"選項E\", \"正確答案\", \"針對各選項之詳解\"
+                        請直接輸出完整的 JSON 陣列，不要包含 ```json 等包裝。
                         {input_data_json}"""
                         
                         ai_response = generate_content_via_http_with_retry([prompt], api_key)
@@ -651,7 +652,7 @@ elif "模組 B" in main_mode:
         except Exception as e: st.error(f"讀取 Excel 檔案錯誤：{e}")
 
 # ==============================================================================
-# 🌟 模組 C：既有題庫已含詳解多管道輸入系統
+# 🌟 模組 C：既有題庫已含詳解多管道輸入系統 (Excel / JSON 檔案 / JSON 貼上)
 # ==============================================================================
 else:
     st.subheader("📄 模式 C：既有題庫 ➡️ 高品質渲染 Word 考卷 (免金鑰)")
