@@ -447,6 +447,13 @@ if "模組 A" in main_mode:
                                             if opt_txt:
                                                 op = doc_ap.add_paragraph(f"({lbl}) {opt_txt}")
                                                 op.paragraph_format.left_indent, op.paragraph_format.space_after = Pt(18), Pt(0)
+                                        
+                                        # 🌟 [防瞄安全防線]：在選項與簡答之間加上分界線
+                                        sep_p = doc_ap.add_paragraph()
+                                        sep_p.paragraph_format.space_before = Pt(6)
+                                        sep_p.paragraph_format.space_after = Pt(6)
+                                        run_sep = sep_p.add_run("==================================================")
+                                        run_sep.font.color.rgb = RGBColor(180, 180, 180) # 淡灰色，不過於刺眼
                                                 
                                         ans_txt = str(item.get("正確答案", "")).upper().strip()
                                         if ans_txt:
@@ -694,6 +701,14 @@ if "模組 A" in main_mode:
                                 if txt:
                                     op = doc.add_paragraph(f"({lbl}) {txt}")
                                     op.paragraph_format.left_indent, op.paragraph_format.space_after = Pt(18), Pt(0)
+                            
+                            # 🌟 [防瞄安全防線]：在選項與簡答之間加上分界線
+                            sep_p = doc.add_paragraph()
+                            sep_p.paragraph_format.space_before = Pt(6)
+                            sep_p.paragraph_format.space_after = Pt(6)
+                            run_sep = sep_p.add_run("==================================================")
+                            run_sep.font.color.rgb = RGBColor(180, 180, 180) # 淡灰色，不過於刺眼
+
                             ans_p = doc.add_paragraph()
                             ans_p.paragraph_format.space_before = Pt(6)
                             ans_p.add_run("Ans : ").bold = True
@@ -872,6 +887,14 @@ elif "模組 B" in main_mode:
                                 if txt:
                                     op = doc_b.add_paragraph(f"({lbl}) {txt}")
                                     op.paragraph_format.left_indent, op.paragraph_format.space_after = Pt(18), Pt(0)
+                            
+                            # 🌟 [防瞄安全防線]：在選項與簡答之間加上分界線
+                            sep_p = doc_b.add_paragraph()
+                            sep_p.paragraph_format.space_before = Pt(6)
+                            sep_p.paragraph_format.space_after = Pt(6)
+                            run_sep = sep_p.add_run("==================================================")
+                            run_sep.font.color.rgb = RGBColor(180, 180, 180) # 淡灰色，不過於刺眼
+
                             ans_p = doc_b.add_paragraph()
                             ans_p.paragraph_format.space_before = Pt(6)
                             ans_p.add_run("Ans : ").bold = True
@@ -1028,6 +1051,13 @@ else:
                                 op = doc_c.add_paragraph(f"({lbl}) {opt_txt}")
                                 op.paragraph_format.left_indent, op.paragraph_format.space_after = Pt(18), Pt(0)
                         
+                        # 🌟 [防瞄安全防線]：在選項與簡答之間加上分界線
+                        sep_p = doc_c.add_paragraph()
+                        sep_p.paragraph_format.space_before = Pt(6)
+                        sep_p.paragraph_format.space_after = Pt(6)
+                        run_sep = sep_p.add_run("==================================================")
+                        run_sep.font.color.rgb = RGBColor(180, 180, 180) # 淡灰色，不過於刺眼
+
                         ans_txt = str(item.get("正確答案", "")).upper().strip()
                         if ans_txt:
                             ans_p = doc_c.add_paragraph()
