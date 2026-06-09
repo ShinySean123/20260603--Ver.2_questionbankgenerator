@@ -81,7 +81,7 @@ main_mode = st.radio(
     [
         "📚 模組 A：講義圖文智慧出題", 
         "📝 模組 B：現成題目自動配詳解", 
-        "📄 模組 C：既有題庫 Excel/JSON ➡️ 轉 Word 考卷"
+        "📄 模組 C：既有題庫 Excel/JSON ➡️ 轉 Word/Excel"
     ],
     index=0,
     horizontal=True
@@ -102,7 +102,6 @@ def generate_content_via_http_with_retry(contents_list, api_key, max_retries=4):
     payload = {"contents": [{"parts": parts}]}
     headers = {"Content-Type": "application/json"}
 
-    # 🚀 這裡修復了連線網址被 polluted 的問題
     for model_name in models_pool:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
         try:
@@ -123,7 +122,6 @@ def generate_content_via_http_with_retry(contents_list, api_key, max_retries=4):
         if elapsed < REQUIRED_GAP:
             time.sleep(REQUIRED_GAP - elapsed)
             
-        # 🚀 這裡修復了連線網址被 polluted 的問題
         for model_name in models_pool:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
             try:
@@ -157,7 +155,6 @@ if "模組 A" in main_mode:
     encoded_user = urllib.parse.quote(GITHUB_USER)
     encoded_repo = urllib.parse.quote(GITHUB_REPO)
 
-    # 🚀 這裡修復了 GitHub 讀取網址被 polluted 的問題
     github_api_hist_url = f"https://api.github.com/repos/{encoded_user}/{encoded_repo}/contents/{urllib.parse.quote(GITHUB_FOLDER_HIST)}"
     file_options = ["❌ 不使用歷史資料（全新出題）"]
     all_excel_files = [] 
@@ -170,7 +167,6 @@ if "模組 A" in main_mode:
             if item['type'] == 'file' and item['name'].endswith('.xlsx'): all_excel_files.append(item['name'])
     except Exception:
         try:
-            # 🚀 這裡修復了 GitHub 讀取網址被 polluted 的問題
             html_url = f"https://github.com/{encoded_user}/{encoded_repo}/tree/main/{urllib.parse.quote(GITHUB_FOLDER_HIST)}"
             req = urllib.request.Request(html_url, headers={'User-Agent': 'Mozilla/5.0'})
             with urllib.request.urlopen(req) as resp: html_text = resp.read().decode('utf-8')
@@ -182,7 +178,6 @@ if "模組 A" in main_mode:
         for f in all_excel_files: file_options.append(f)
 
     cloud_pdf_files = []
-    # 🚀 這裡修復了 GitHub 讀取網址被 polluted 的問題
     github_api_pdf_url = f"https://api.github.com/repos/{encoded_user}/{encoded_repo}/contents/{urllib.parse.quote(GITHUB_FOLDER_PDF)}"
 
     try:
@@ -193,7 +188,6 @@ if "模組 A" in main_mode:
             if item['type'] == 'file' and item['name'].lower().endswith('.pdf'): cloud_pdf_files.append(item['name'])
     except Exception:
         try:
-            # 🚀 這裡修復了 GitHub 讀取網址被 polluted 的問題
             html_url = f"https://github.com/{encoded_user}/{encoded_repo}/tree/main/{urllib.parse.quote(GITHUB_FOLDER_PDF)}"
             req = urllib.request.Request(html_url, headers={'User-Agent': 'Mozilla/5.0'})
             with urllib.request.urlopen(req) as resp: 
@@ -216,7 +210,6 @@ if "模組 A" in main_mode:
 
     def fetch_excel_titles(file_name):
         encoded_name = urllib.parse.quote(file_name)
-        # 🚀 這裡修復了 GitHub 讀取網址被 polluted 的問題
         raw_url = f"https://raw.githubusercontent.com/{encoded_user}/{encoded_repo}/main/{GITHUB_FOLDER_HIST}/{encoded_name}"
         try:
             req = urllib.request.Request(raw_url, headers={'User-Agent': 'Mozilla/5.0'})
@@ -234,14 +227,12 @@ if "模組 A" in main_mode:
 
     def fetch_cloud_pdf_bytes(file_name):
         encoded_name = urllib.parse.quote(file_name)
-        # 🚀 這裡修復了 GitHub 讀取網址被 polluted 的問題
         raw_url = f"https://raw.githubusercontent.com/{encoded_user}/{encoded_repo}/main/{GITHUB_FOLDER_PDF}/{file_name}"
         try:
             req = urllib.request.Request(raw_url, headers={'User-Agent': 'Mozilla/5.0'})
             with urllib.request.urlopen(req) as resp: return resp.read()
         except:
             try:
-                # 🚀 這裡修復了 GitHub 讀取網址被 polluted 的問題
                 raw_url_alt = f"https://github.com/{encoded_user}/{encoded_repo}/raw/main/{GITHUB_FOLDER_PDF}/{file_name}"
                 req = urllib.request.Request(raw_url_alt, headers={'User-Agent': 'Mozilla/5.0'})
                 with urllib.request.urlopen(req) as resp: return resp.read()
@@ -268,21 +259,6 @@ if "模組 A" in main_mode:
         )
 
         st.markdown("---")
-        st.subheader("🏷️ 設定大標題與檔名")
-        
-        end_q_num = start_q_num + num_questions - 1
-        default_remarks = f"{start_q_num:02d}~{end_q_num:02d}"
-
-        col_t1, col_t2 = st.columns(2)
-        with col_t1: subject_name = st.text_input("科目名稱", "生理學", key="sub_a")
-        with col_t2: teacher_name = st.text_input("老師名稱", "王大明", key="tea_a")
-            
-        col_t3, col_t4 = st.columns(2)
-        with col_t3: topic_name = st.text_input("課堂主題", "心血管系統", key="top_a")
-        with col_t4: remarks = st.text_input("備註 (預設為題號範圍)", value=default_remarks, key="rem_a")
-
-        final_title_filename = f"{subject_name}_{teacher_name}_{topic_name}_{remarks}"
-        st.info(f"📁 系統預覽輸出名稱將為：**{final_title_filename}**")
 
         def extract_clean_text_from_pdf(pdf_bytes, pdf_name):
             chunk_text = ""
@@ -293,6 +269,9 @@ if "模組 A" in main_mode:
                 if text: chunk_text += f"\n\n=== 【{pdf_name}】第 {i+1} 頁 ===\n{text}"
             return chunk_text
 
+        # ==============================================================================
+        # 支線：A' 客製化 Prompt 複製器 (已在此隱藏冗餘的檔名設定面板，實現最速生成！)
+        # ==============================================================================
         if "功能 A'" in sub_function_mode:
             st.success("💡 專屬客製化 PROMPT 封裝完成！請直接點擊右上角按鈕一鍵複製：")
             combined_text_payload = ""
@@ -310,8 +289,7 @@ if "模組 A" in main_mode:
             if history_titles:
                 history_prompt_str = "\n【🚨 歷史考點去重指令】：以下是歷史已出題目的名單，你設計的新題目絕對禁止再次重複測驗以下已考過的生理機制、藥理靶點或鑑別觀念，必須挑選講義中全新的核心知識點命題：\n" + "\n".join([f"- {t}" for t in history_titles[:40]])
 
-            # 🌟 核心修復點：升級工業級 Prompt，死死限縮 JSON 格式
-            raw_prompt_for_user = f"""你現在是一位資深的醫學與生物科學教授。請根據我為你提供的這份完整講義文字文本，精準鎖定這些講義文字內容中的【{page_range}】，並圍繞核心主題【{topic_name}】設計出高質感的題庫。
+            raw_prompt_for_user = f"""你現在是一位資深的醫學與生物科學教授。請根據我為你提供的這份完整講義文字文本，精準鎖定這些講義文字內容中的【{page_range}】，並圍繞核心主題設計出高質感的題庫。
 
 【數量鐵律】：我要求你精準輸出「剛好」 {num_questions} 題五選一的單選題。絕對不能多出，也不能少出！
 
@@ -339,10 +317,28 @@ if "模組 A" in main_mode:
 {combined_text_payload}
 """
             st.code(raw_prompt_for_user, language="text")
-            st.caption("ℹ️ 下載與解析小技巧：直接將上方複製的 JSON 結果貼回本系統的【模組 C】，選擇『直接貼上 JSON 文字模式』，即可一秒自動轉出精美排版的 Word 試卷！")
+            st.caption("ℹ️ 下載與解析小技巧：直接將上方複製的 JSON 結果貼回本系統的【模組 C】，選擇『直接貼上 JSON 文字模式』，即可一秒自動轉出精美排版的 Word 與 Excel 試卷！")
 
+        # ==============================================================================
+        # 主功能支線：自動在網頁中呼叫 API 跑完 (此功能保留檔名與標題組裝)
+        # ==============================================================================
         else:
-            if st.button("⚡ 開始全自動雙模融合出題 ⚡", use_container_width=True):
+            st.subheader("🏷️ 設定大標題與檔名")
+            end_q_num = start_q_num + num_questions - 1
+            default_remarks = f"{start_q_num:02d}~{end_q_num:02d}"
+
+            col_t1, col_t2 = st.columns(2)
+            with col_t1: subject_name = st.text_input("科目名稱", "生理學", key="sub_a")
+            with col_t2: teacher_name = st.text_input("老師名稱", "王大明", key="tea_a")
+                
+            col_t3, col_t4 = st.columns(2)
+            with col_t3: topic_name = st.text_input("課堂主題", "心血管系統", key="top_a")
+            with col_t4: remarks = st.text_input("備註 (預設為題號範圍)", value=default_remarks, key="rem_a")
+
+            final_title_filename = f"{subject_name}_{teacher_name}_{topic_name}_{remarks}"
+            st.info(f"📁 系統預覽輸出名稱將為：**{final_title_filename}**")
+
+            if st.button("⚡ 開始全全自動雙模融合出題 ⚡", use_container_width=True):
                 try:
                     combined_text_payload = ""
                     with st.spinner("🔍 正在啟動本地高效文字萃取引擎..."):
@@ -352,7 +348,7 @@ if "模組 A" in main_mode:
                             if c_bytes: combined_text_payload += extract_clean_text_from_pdf(c_bytes, cloud_pdf_name)
 
                     with st.spinner("🧠 任務封裝完成！正透過智慧負載分流引擎發送至雲端核心..."):
-                        range_instruction = f"精準鎖定這些講義文字內容中的【{page_range}】" if "整份" not in page_range and "全部" not in page_range else "「通盤掃描並融合這幾份講義文字」的完整內容，宏觀地在不同的章節與圖表中提取重點"
+                        range_instruction = f"精準鎖定這些講義文字內容中的【{page_range}】" if "整份" not in page_range and "全部" not in page_range else "「通盤掃描並融合這幾份講義文字」的完整內容，宏觀地在不同的章節與核心觀念中提取重點"
                         history_block = ""
                         if history_titles: 
                             history_block = """
@@ -465,7 +461,7 @@ if "模組 A" in main_mode:
                                 run = h.add_run("詳解 :"); run.bold, run.font.color.rgb = True, PURPLE
                                 for line in expl.split('\n'):
                                     if not line.strip(): continue
-                                    lp = doc.add_paragraph()
+                                    lp = doc_paragraph = doc.add_paragraph()
                                     lp.paragraph_format.left_indent, lp.paragraph_format.space_after = Pt(18), Pt(2)
                                     m = re.match(r'^([A-F])\s*([\(（].*?[\)隱]|[:：])', line.strip())
                                     if m:
