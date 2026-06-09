@@ -27,9 +27,61 @@ TRIPLE_BACKTICK = chr(96) * 3
 BT_JSON = TRIPLE_BACKTICK + "json"
 BT_ONLY = TRIPLE_BACKTICK
 
+# GitHub 連動參數 (設為全域常數，利於跨模組大備份呼叫)
+GITHUB_USER = "ShinySean123"
+GITHUB_REPO = "20260603--Ver.2_questionbankgenerator"
+GITHUB_FOLDER_HIST = "history_db"          
+GITHUB_FOLDER_PDF = "current_materials"    
+
 def sanitize_f(name): 
     """全域共用的檔名非法字元過濾器"""
     return re.sub(r'[\\/:*?"<>|]', '_', str(name))
+
+# 🌟 [全新武器]：全自動備份推送至 GitHub 歷史庫核心引擎
+def upload_excel_to_github(file_bytes, file_name, github_token):
+    if not github_token:
+        return False, "未設定 GitHub Token"
+    
+    encoded_user = urllib.parse.quote(GITHUB_USER)
+    encoded_repo = urllib.parse.quote(GITHUB_REPO)
+    sanitized_name = sanitize_f(file_name)
+    encoded_path = urllib.parse.quote(f"{GITHUB_FOLDER_HIST}/{sanitized_name}")
+    
+    url = f"https://api.github.com/repos/{encoded_user}/{encoded_repo}/contents/{encoded_path}"
+    headers = {
+        "Authorization": f"token {github_token}",
+        "Accept": "application/vnd.github.v3+json",
+        "User-Agent": "Streamlit-App"
+    }
+    
+    # 1. 嘗試獲取現有檔案的 SHA 雜湊 (以利覆蓋更新，避免 GitHub API 衝突)
+    sha = None
+    try:
+        resp = requests.get(url, headers=headers, timeout=10)
+        if resp.status_code == 200:
+            sha = resp.json().get("sha")
+    except Exception:
+        pass
+        
+    # 2. 進行 Base64 編碼
+    b64_content = base64.b64encode(file_bytes).decode("utf-8")
+    payload = {
+        "message": f"🤖 AI 自動同步備份題庫: {sanitized_name}",
+        "content": b64_content,
+        "branch": "main"
+    }
+    if sha:
+        payload["sha"] = sha
+        
+    # 3. 發送 PUT 請求存入庫
+    try:
+        resp = requests.put(url, headers=headers, json=payload, timeout=15)
+        if resp.status_code in [200, 201]:
+            return True, f"成功！檔案已即時同步備份至 GitHub `history_db/{sanitized_name}`"
+        else:
+            return False, f"GitHub 拒絕寫入 ({resp.status_code}): {resp.text}"
+    except Exception as e:
+        return False, f"連線異常: {e}"
 
 EXCEL_COL_WIDTHS = {
     'A': 8,   # 題號
@@ -59,21 +111,29 @@ st.set_page_config(page_title="AI 醫學共筆題庫工作站", page_icon="🧠"
 st.title("🧠 AI 醫學共筆題庫三模工作站")
 st.markdown("共筆組長專屬完全體：整合【講義智慧出題】、【純題配詳解】與【現成題庫轉 Word】三大核心功能！")
 
-# ==================== 1. 🔑 共享 API 金鑰設定面板 ====================
+# ==================== 1. 🔑 共享 API 金鑰與 GitHub 備份面板 ====================
 env_key = ""
+env_github_token = ""
 try:
     if "GEMINI_API_KEY" in st.secrets: 
         env_key = st.secrets["GEMINI_API_KEY"]
+    if "GITHUB_TOKEN" in st.secrets:
+        env_github_token = st.secrets["GITHUB_TOKEN"]
 except Exception: 
     pass
 
 with st.sidebar:
-    st.header("🔑 API 金鑰配置")
-    user_live_key = st.text_input("請輸入 API Key：", value=env_key if env_key else "", type="password")
+    st.header("🔑 API 金鑰與金鑰配置")
+    user_live_key = st.text_input("請輸入 Gemini API Key：", value=env_key if env_key else "", type="password")
     api_key = user_live_key.strip() if user_live_key else env_key
     
     st.markdown("---")
-    st.caption("💡 提示：『功能 A'』與『模組 C』為本地純文字引擎與排版引擎，完全不需要輸入 API Key 即可全功能運作！")
+    st.header("☁️ GitHub 雲端備份配置")
+    user_github_token = st.text_input("請輸入 GitHub Token：", value=env_github_token if env_github_token else "", type="password", help="用於將輸出的 Excel 題庫檔案自動存入您 GitHub 的 history_db 資料夾中。")
+    github_token = user_github_token.strip() if user_github_token else env_github_token
+    
+    st.markdown("---")
+    st.caption("💡 提示：本機排版引擎（功能 A'與模組 C）完全不需要輸入 Gemini Key 即可完美運作！填入 GitHub Token 可解鎖自動雲端備份歷史庫功能。")
 
 # 導覽器放置在金鑰檢查前，確保介面正常渲染
 main_mode = st.radio(
@@ -146,11 +206,6 @@ if "模組 A" in main_mode:
         horizontal=True
     )
     st.markdown("---")
-
-    GITHUB_USER = "ShinySean123"
-    GITHUB_REPO = "20260603--Ver.2_questionbankgenerator"
-    GITHUB_FOLDER_HIST = "history_db"          
-    GITHUB_FOLDER_PDF = "current_materials"    
 
     encoded_user = urllib.parse.quote(GITHUB_USER)
     encoded_repo = urllib.parse.quote(GITHUB_REPO)
@@ -307,7 +362,7 @@ if "模組 A" in main_mode:
 1. 請「只」輸出符合上述規範的標準 JSON 格式列表陣列格式（即以 [ 開頭，以 ] 結尾）。
 2. 絕對、嚴禁、不要包含任何 Markdown 包裝字串！例如：禁止在開頭與結尾夾帶 ```json 或 ```。
 3. 絕對不要輸出任何多餘的解釋、前言、後記或提示性文字。你的回答必須是 100% 可被機器直接解析的純 JSON 陣列。
-4. 嚴格注意物件內最後一個 Key-Value 欄位與最後一個物件的末尾，【絕對不能】有多餘的逗號 (Trailing Comma)。
+4. 嚴格注意物件內最後一個 Key-Value 欄位與最後一個物件 of 末尾，【絕對不能】有多餘的逗號 (Trailing Comma)。
 5. 詳解內容中若需要換行，請務必使用標準字元安全轉義序列「\\\\n」呈現，確保 JSON 的連續性。
 
 【輸出格式規範】：
@@ -338,7 +393,7 @@ if "模組 A" in main_mode:
             final_title_filename = f"{subject_name}_{teacher_name}_{topic_name}_{remarks}"
             st.info(f"📁 系統預覽輸出名稱將為：**{final_title_filename}**")
 
-            if st.button("⚡ 開始全自動雙模融合出題 ⚡", use_container_width=True):
+            if st.button("⚡ 開始全全自動雙模融合出題 ⚡", use_container_width=True):
                 try:
                     combined_text_payload = ""
                     with st.spinner("🔍 正在啟動本地高效文字萃取引擎..."):
@@ -382,7 +437,7 @@ if "模組 A" in main_mode:
                         4. 嚴格注意物件內最後一個欄位與最後一個物件的末尾，【絕對不能】有多餘的逗號。
                         5. 詳解換行請務必使用安全轉義序列「\\\\n」呈現。
 
-                        格式必須是 JSON 格式的列表(Array)，內含多個物件，每個物件的Key必須嚴格為："題目內容", "選項A", "選項B", "選項C", "選項D", "選項E", "正確答案", "針對各選項之詳解", "出處"
+                        格式必須是 JSON 格式 the 列表(Array)，內含多個物件，每個物件的Key必須嚴格為："題目內容", "選項A", "選項B", "選項C", "選項D", "選項E", "正確答案", "針對各選項之詳解", "出處"
 
                         以下是待讀取的講義完整純文字文本：
                         {combined_text_payload}
@@ -483,6 +538,16 @@ if "模組 A" in main_mode:
                         st.session_state["generated_excel_a"] = final_excel_bytes.getvalue()
                         st.session_state["generated_word_a"] = final_word_bytes.getvalue()
                         st.session_state["saved_exam_title_a"] = final_title_filename
+                        
+                        # 🌟 [即時同步]：若設定了 Token，自動推送至 GitHub 歷史庫
+                        if github_token:
+                            with st.spinner("☁️ 正在即時同步備份 Excel 至 GitHub 歷史庫..."):
+                                success, msg = upload_excel_to_github(final_excel_bytes.getvalue(), f"{final_title_filename}.xlsx", github_token)
+                                if success:
+                                    st.success(f"☁️ {msg}")
+                                else:
+                                    st.warning(f"⚠️ {msg} (但本地檔案已成功生成)")
+                                    
                 except Exception as e: st.error(f"出題過程出錯：{e}")
 
             if "generated_excel_a" in st.session_state and "generated_word_a" in st.session_state:
@@ -644,6 +709,16 @@ elif "模組 B" in main_mode:
                         st.session_state["sol_excel_b"] = final_excel_bytes_b.getvalue()
                         st.session_state["sol_word_b"] = final_word_bytes_b.getvalue()
                         st.session_state["saved_exam_title_b"] = final_title_filename_b
+                        
+                        # 🌟 [即時同步]：若設定了 Token，自動推送至 GitHub 歷史庫
+                        if github_token:
+                            with st.spinner("☁️ 正在即時同步備份 Excel 至 GitHub 歷史庫..."):
+                                success, msg = upload_excel_to_github(final_excel_bytes_b.getvalue(), f"{final_title_filename_b}.xlsx", github_token)
+                                if success:
+                                    st.success(f"☁️ {msg}")
+                                else:
+                                    st.warning(f"⚠️ {msg} (但本地檔案已成功生成)")
+                                    
                 except Exception as e: st.error(f"分析過程出錯：{e}")
 
             if "sol_excel_b" in st.session_state and "sol_word_b" in st.session_state:
@@ -864,6 +939,16 @@ else:
                     st.session_state["sol_word_c"] = final_word_bytes_c.getvalue()
                     st.session_state["sol_excel_c"] = final_excel_bytes_c.getvalue()
                     st.session_state["saved_exam_title_c"] = final_title_filename_c
+                    
+                    # 🌟 [即時同步]：若設定了 Token，自動推送至 GitHub 歷史庫
+                    if github_token:
+                        with st.spinner("☁️ 正在即時同步備份 Excel 至 GitHub 歷史庫..."):
+                            success, msg = upload_excel_to_github(final_excel_bytes_c.getvalue(), f"{final_title_filename_c}.xlsx", github_token)
+                            if success:
+                                st.success(f"☁️ {msg}")
+                            else:
+                                st.warning(f"⚠️ {msg} (但本地檔案已成功生成)")
+                                
             except Exception as e:
                 st.error(f"轉換排版過程發生錯誤：{e}")
 
