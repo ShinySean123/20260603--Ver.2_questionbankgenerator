@@ -78,6 +78,8 @@ def upload_excel_to_github(file_bytes, file_name, github_token):
         resp = requests.put(url, headers=headers, json=payload, timeout=15)
         if resp.status_code in [200, 201]:
             return True, f"成功！檔案已即時同步備份至 GitHub `history_db/{sanitized_name}`"
+        elif resp.status_code == 401:
+            return False, "GitHub 認證失敗 (401)。後台 Secrets 中的 Token 可能已被註銷，請更換新 Token。"
         else:
             return False, f"GitHub 拒絕寫入 ({resp.status_code}): {resp.text}"
     except Exception as e:
@@ -111,17 +113,16 @@ st.set_page_config(page_title="AI 醫學共筆題庫工作站", page_icon="🧠"
 st.title("🧠 AI 醫學共筆題庫三模工作站")
 st.markdown("共筆組長專屬完全體：整合【講義智慧出題】、【純題配詳解】與【現成題庫轉 Word】三大核心功能！")
 
-# ==================== 1. 🔑 共享 API 金鑰與 GitHub 備份面板 ====================
+# ==================== 1. 🔑 共享 API 金鑰與 GitHub 後台備份設定 ====================
 env_key = ""
-# 直接寫入您提供的最新 GitHub 個人存取權杖（PAT）作為預設配置
-env_github_token = "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"
+github_token = ""
 
 try:
     if "GEMINI_API_KEY" in st.secrets: 
         env_key = st.secrets["GEMINI_API_KEY"]
-    # 如果 Secrets 裡有其他的 GITHUB_TOKEN 且 env_github_token 尚未被寫入，則採用 secrets 作為優先
-    if "GITHUB_TOKEN" in st.secrets and not env_github_token:
-        env_github_token = st.secrets["GITHUB_TOKEN"]
+    # 🌟 徹底移入後台：優先且只從 Streamlit Secrets 安全通道讀取，絕不暴露於前端
+    if "GITHUB_TOKEN" in st.secrets:
+        github_token = st.secrets["GITHUB_TOKEN"].strip()
 except Exception: 
     pass
 
@@ -131,12 +132,15 @@ with st.sidebar:
     api_key = user_live_key.strip() if user_live_key else env_key
     
     st.markdown("---")
-    st.header("☁️ GitHub 雲端備份配置")
-    user_github_token = st.text_input("請輸入 GitHub Token：", value=env_github_token, type="password", help="用於將輸出的 Excel 題庫檔案自動存入您 GitHub 的 history_db 資料夾中。")
-    github_token = user_github_token.strip() if user_github_token else env_github_token
-    
+    st.header("☁️ GitHub 雲端備份狀態")
+    # 🌟 在側邊欄僅展示同步狀態，不提供輸入框，保持介面清爽安全
+    if github_token:
+        st.success("🟢 雲端同步備份已啟動 (已偵測到後台 GITHUB_TOKEN)")
+    else:
+        st.info("ℹ️ 雲端同步備份未啟動 (未偵測到後台 GITHUB_TOKEN)")
+        
     st.markdown("---")
-    st.caption("💡 提示：本機排版引擎（功能 A'與模組 C）完全不需要輸入 Gemini Key 即可完美運作！預設已自動帶入組長專屬寫入權杖。")
+    st.caption("💡 提示：『功能 A'』與『模組 C』為本地純文字引擎與排版引擎，完全不需要輸入 Gemini Key 即可完美運作！若需自動同步備份，請至 Streamlit 後台 Settings ➡️ Secrets 中配置 `GITHUB_TOKEN`。")
 
 # 導覽器放置在金鑰檢查前，確保介面正常渲染
 main_mode = st.radio(
@@ -603,7 +607,7 @@ if "模組 A" in main_mode:
                         if "1. 中文出題" in lang_style:
                             lang_prompt = "每個物件中的「題目內容」與「選項A」~「選項E」必須主要使用繁體中文撰寫。遇到醫學專有名詞時，請嚴格採取「英文搭配括號中文」的方式呈現（例如：Myocardial Infarction (心肌梗塞)）。"
                         else:
-                            lang_prompt = "每個物件中的「題目內容」與「選項A」~「選項E」必須完全使用純英文 (Full English) 撰寫。符合美國醫學執照考試 (USMLE) 專業醫學出題邏輯。"
+                            lang_prompt = "每個物件中的「題目內容」與「選項A」~「選項E」必須完全使用純英文 (Full English) 寫作。符合美國醫學執照考試 (USMLE) 專業醫學出題邏輯。"
 
                         prompt = f"""你現在是一位資深的醫學與生物科學教授。請根據我為你提供的這份【完整】講義文字內容，{range_instruction}，並圍繞核心主題【{topic_name}】出題。
                         【數量鐵律】：我要求你精準輸出「剛好」 {num_questions} 題五選一的單選題。絕對不能多出，也不能少出！
