@@ -311,7 +311,7 @@ if "模組 A" in main_mode:
 5. 詳解內容中若需要換行，請務必使用標準字元安全轉義序列「\\\\n」呈現，確保 JSON 的連續性。
 
 【輸出格式規範】：
-格式必須是標準的 JSON 格式列表(Array)，內含多個物件，每個物件的 Key 必須嚴格為："題目內容", "選項A", "選項B", "選項C", "選項D", "選項E", "正確答案", "針對各選項之詳解", "出處"
+格式必須是標準的 JSON 格式列表(Array)，內含多個物件，每個物件 of Key 必須嚴格為："題目內容", "選項A", "選項B", "選項C", "選項D", "選項E", "正確答案", "針對各選項之詳解", "出處"
 
 以下是為你夾帶的講義完整純文字文本：
 {combined_text_payload}
@@ -338,7 +338,7 @@ if "模組 A" in main_mode:
             final_title_filename = f"{subject_name}_{teacher_name}_{topic_name}_{remarks}"
             st.info(f"📁 系統預覽輸出名稱將為：**{final_title_filename}**")
 
-            if st.button("⚡ 開始全全自動雙模融合出題 ⚡", use_container_width=True):
+            if st.button("⚡ 開始全自動雙模融合出題 ⚡", use_container_width=True):
                 try:
                     combined_text_payload = ""
                     with st.spinner("🔍 正在啟動本地高效文字萃取引擎..."):
@@ -378,7 +378,7 @@ if "模組 A" in main_mode:
                         【🚨 格式與語法輸出鐵律 - 違者拒收】：
                         1. 請「只」輸出標準 JSON 格式列表陣列格式（即以 [ 開頭，以 ] 結尾）。
                         2. 絕對、嚴禁、不要包含 any Markdown 外包裝字串！禁止在開頭與結尾夾帶 ```json 等字眼。
-                        3. 絕對不要輸出任何多餘的解釋、前言或後記。
+                        3. 絕對不要輸出 any 多餘的解釋、前言或後記。
                         4. 嚴格注意物件內最後一個欄位與最後一個物件的末尾，【絕對不能】有多餘的逗號。
                         5. 詳解換行請務必使用安全轉義序列「\\\\n」呈現。
 
@@ -425,7 +425,7 @@ if "模組 A" in main_mode:
                                 if cell.column_letter in ['A', 'H']: cell.alignment = Alignment(horizontal='center', vertical='center')
                                 if r_idx > 1:
                                     cw = EXCEL_COL_WIDTHS.get(cell.column_letter, 20)
-                                    est = math.ceil((len(str(cell.value)) * 1.8) / cw)
+                                    est = math.ceil((len(str(cell.value or '')) * 1.8) / cw)
                                     if est > 1: ws.row_dimensions[r_idx].height = est * 18
                         final_excel_bytes = io.BytesIO()
                         wb.save(final_excel_bytes)
@@ -461,7 +461,7 @@ if "模組 A" in main_mode:
                                 run = h.add_run("詳解 :"); run.bold, run.font.color.rgb = True, PURPLE
                                 for line in expl.split('\n'):
                                     if not line.strip(): continue
-                                    lp = doc_paragraph = doc.add_paragraph()
+                                    lp = doc.add_paragraph()
                                     lp.paragraph_format.left_indent, lp.paragraph_format.space_after = Pt(18), Pt(2)
                                     m = re.match(r'^([A-F])\s*([\(（].*?[\)隱]|[:：])', line.strip())
                                     if m:
@@ -547,8 +547,15 @@ elif "模組 B" in main_mode:
                     with st.spinner("🧠 任務封裝完成！正在跨世代智慧調度配對詳解中..."):
                         input_data_json = json.dumps(cleaned_questions, ensure_ascii=False)
                         prompt = f"""你現在是一位資深的醫學與生物科學教授。請根據我提供給你的 JSON 題目列表，【原封不動】地保留題目內容與選項，並補上最精準的【正確答案】以及極為詳細的【針對各選項之詳解】。
-                        格式必須符合 JSON 列表(Array)，Key 必須為：\"題目內容\", \"選項A\", \"選項B\", \"選項C\", \"選項D\", \"選項E\", \"正確答案\", \"針對各選項之詳解\"
-                        請直接輸出完整的 JSON 陣列，不要包含 ```json 等包裝。
+                        
+                        【🚨 格式與語法輸出鐵律 - 違者拒收】：
+                        1. 請「只」輸出標準 JSON 格式列表陣列格式（即以 [ 開頭，以 ] 結尾）。
+                        2. 絕對、嚴禁、不要包含 any Markdown 外包裝字串！禁止在開頭與結尾夾帶 ```json 等字眼。
+                        3. 絕對不要輸出任何多餘的解釋、前言或後記。
+                        4. 嚴格注意物件內最後一個欄位與最後一個物件的末尾，【絕對不能】有多餘的逗號。
+                        5. 詳解換行請務必使用安全轉義序列「\\\\n」呈現。
+
+                        格式必須嚴格符合 JSON 列表(Array)，Key 必須為："題目內容", "選項A", "選項B", "選項C", "選項D", "選項E", "正確答案", "針對各選項之詳解"
                         {input_data_json}"""
                         
                         ai_response = generate_content_via_http_with_retry([prompt], api_key)
@@ -586,7 +593,7 @@ elif "模組 B" in main_mode:
                                 if cell.column_letter in ['A', 'H']: cell.alignment = Alignment(horizontal='center', vertical='center')
                                 if r_idx > 1:
                                     cw = EXCEL_COL_WIDTHS.get(cell.column_letter, 20)
-                                    est = math.ceil((len(str(cell.value)) * 1.8) / cw)
+                                    est = math.ceil((len(str(cell.value or '')) * 1.8) / cw)
                                     if est > 1: ws_b.row_dimensions[r_idx].height = est * 18
                         final_excel_bytes_b = io.BytesIO()
                         wb_b.save(final_excel_bytes_b)
@@ -651,7 +658,7 @@ elif "模組 B" in main_mode:
 # 🌟 模組 C：既有題庫已含詳解多管道輸入系統 (Excel / JSON 檔案 / JSON 貼上)
 # ==============================================================================
 else:
-    st.subheader("📄 模式 C：既有題庫 ➡️ 高品質渲染 Word 考卷 (免金鑰)")
+    st.subheader("📄 模式 C：既有題庫 ➡️ 高品質渲染 Word/Excel 考卷 (免金鑰)")
     
     input_channel = st.radio(
         "📥 請選擇您的資料輸入來源：",
@@ -741,9 +748,10 @@ else:
         final_title_filename_c = f"{subject_name_c}_{teacher_name_c}_{topic_name_c}_{remarks_c}"
         st.info(f"📁 系統預覽輸出名稱將為：**{final_title_filename_c}**")
 
-        if st.button("📥 一鍵原封不動轉換為 Word 試卷 📥", use_container_width=True):
+        if st.button("📥 一鍵排版產出 Word 試卷與 Excel 題庫 📥", use_container_width=True):
             try:
-                with st.spinner("🎨 正在啟動排版引擎，進行字型美化、段落縮排與高亮著色中..."):
+                with st.spinner("🎨 正在啟動雙軸排版引擎，同時美化 Word 與 Excel 中..."):
+                    # 1. 產生高質感 Word
                     doc_c = Document()
                     sec_c = doc_c.sections[0]
                     sec_c.top_margin = sec_c.bottom_margin = sec_c.left_margin = sec_c.right_margin = Cm(1.27)
@@ -759,10 +767,12 @@ else:
                     title_p.runs[-1].font.size = Pt(16)
 
                     opt_labels = ['A', 'B', 'C', 'D', 'E']
+                    processed_rows_c = []
 
                     for idx, item in enumerate(raw_items_list):
                         current_q_num = int(start_q_num_c) + idx
                         
+                        # --- 寫入 Word ---
                         q_txt = item.get("題目內容", item.get("題庫內容", ""))
                         doc_c.add_paragraph(f"{current_q_num}. {q_txt}").paragraph_format.space_after = Pt(6)
                         
@@ -805,21 +815,76 @@ else:
                             sp.add_run(src_txt).font.color.rgb = BLUE
                             
                         doc_c.add_paragraph("")
+                        
+                        # --- 整理資料準備給 Excel ---
+                        row_dict = {
+                            '題號': current_q_num,
+                            '題目內容': str(q_txt).strip(),
+                            '選項A': str(item.get("選項A", "")).strip(),
+                            '選項B': str(item.get("選項B", "")).strip(),
+                            '選項C': str(item.get("選項C", "")).strip(),
+                            '選項D': str(item.get("選項D", "")).strip(),
+                            '選項E': str(item.get("選項E", "")).strip(),
+                            '正確答案': ans_txt,
+                            '針對各選項之詳解': expl_txt,
+                            '出處': src_txt
+                        }
+                        processed_rows_c.append(row_dict)
+
+                    # 2. 產生高質感 Excel
+                    excel_out_c = io.BytesIO()
+                    pd.DataFrame(processed_rows_c).to_excel(excel_out_c, index=False)
+                    excel_out_c.seek(0)
+                    wb_c = load_workbook(excel_out_c)
+                    ws_c = wb_c.active
+                    for letter, width in EXCEL_COL_WIDTHS.items(): 
+                        ws_c.column_dimensions[letter].width = width
+                    for r_idx, row in enumerate(ws_c.iter_rows(min_row=1, max_row=ws_c.max_row), 1):
+                        for cell in row:
+                            cell.border = EXCEL_BORDER
+                            cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
+                            if r_idx == 1:
+                                cell.font = Font(bold=True)
+                                cell.alignment = Alignment(horizontal='center', vertical='center')
+                            if cell.column_letter in ['A', 'H']: 
+                                cell.alignment = Alignment(horizontal='center', vertical='center')
+                            if r_idx > 1:
+                                cw = EXCEL_COL_WIDTHS.get(cell.column_letter, 20)
+                                est = math.ceil((len(str(cell.value or '')) * 1.8) / cw)
+                                if est > 1: 
+                                    ws_c.row_dimensions[r_idx].height = est * 18
 
                     final_word_bytes_c = io.BytesIO()
                     doc_c.save(final_word_bytes_c)
+                    
+                    final_excel_bytes_c = io.BytesIO()
+                    wb_c.save(final_excel_bytes_c)
+                    
+                    # 寫入狀態
                     st.session_state["sol_word_c"] = final_word_bytes_c.getvalue()
+                    st.session_state["sol_excel_c"] = final_excel_bytes_c.getvalue()
                     st.session_state["saved_exam_title_c"] = final_title_filename_c
             except Exception as e:
                 st.error(f"轉換排版過程發生錯誤：{e}")
 
-        if "sol_word_c" in st.session_state:
-            st.success("🎉 Word 考卷排版渲染已完美達成！請點擊下方按鈕下載：")
+        # 下載按鈕 (平級抽離，完全獨立於 try-except 外部，安全且完美對齊)
+        if "sol_word_c" in st.session_state and "sol_excel_c" in st.session_state:
+            st.success("🎉 Word 試卷與 Excel 題庫排版渲染已完美達成！請點擊下方按鈕下載：")
             s_name_c = sanitize_f(st.session_state["saved_exam_title_c"])
-            st.download_button(
-                label="📄 下載精修排版 Word 試卷 (.docx)",
-                data=st.session_state["sol_word_c"],
-                file_name=f"{s_name_c}.docx",
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                use_container_width=True
-            )
+            dl_col1_c, dl_col2_c = st.columns(2)
+            with dl_col1_c:
+                st.download_button(
+                    label="📊 下載精修 Excel 題庫 (.xlsx)",
+                    data=st.session_state["sol_excel_c"],
+                    file_name=f"{s_name_c}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
+            with dl_col2_c:
+                st.download_button(
+                    label="📄 下載精修排版 Word 試卷 (.docx)",
+                    data=st.session_state["sol_word_c"],
+                    file_name=f"{s_name_c}.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    use_container_width=True
+                )
