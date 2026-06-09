@@ -22,7 +22,6 @@ from docx.oxml.ns import qn
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 # ==================== 0. 全域常規樣式與字元定義 ====================
-# 使用 chr(96) * 3 動態拼接三個反引號，100% 避免 Git 與 Streamlit Cloud 語法截斷 Bug
 TRIPLE_BACKTICK = chr(96) * 3
 BT_JSON = TRIPLE_BACKTICK + "json"
 BT_ONLY = TRIPLE_BACKTICK
@@ -103,7 +102,7 @@ def generate_content_via_http_with_retry(contents_list, api_key, max_retries=4):
     headers = {"Content-Type": "application/json"}
 
     for model_name in models_pool:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+        url = f"[https://generativelanguage.googleapis.com/v1beta/models/](https://generativelanguage.googleapis.com/v1beta/models/){model_name}:generateContent?key={api_key}"
         try:
             resp = requests.post(url, headers=headers, json=payload, timeout=90)
             if resp.status_code == 200:
@@ -123,7 +122,7 @@ def generate_content_via_http_with_retry(contents_list, api_key, max_retries=4):
             time.sleep(REQUIRED_GAP - elapsed)
             
         for model_name in models_pool:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+            url = f"[https://generativelanguage.googleapis.com/v1beta/models/](https://generativelanguage.googleapis.com/v1beta/models/){model_name}:generateContent?key={api_key}"
             try:
                 resp = requests.post(url, headers=headers, json=payload, timeout=90)
                 if resp.status_code == 200:
@@ -155,7 +154,7 @@ if "模組 A" in main_mode:
     encoded_user = urllib.parse.quote(GITHUB_USER)
     encoded_repo = urllib.parse.quote(GITHUB_REPO)
 
-    github_api_hist_url = f"https://api.github.com/repos/{encoded_user}/{encoded_repo}/contents/{urllib.parse.quote(GITHUB_FOLDER_HIST)}"
+    github_api_hist_url = f"[https://api.github.com/repos/](https://api.github.com/repos/){encoded_user}/{encoded_repo}/contents/{urllib.parse.quote(GITHUB_FOLDER_HIST)}"
     file_options = ["❌ 不使用歷史資料（全新出題）"]
     all_excel_files = [] 
 
@@ -167,7 +166,7 @@ if "模組 A" in main_mode:
             if item['type'] == 'file' and item['name'].endswith('.xlsx'): all_excel_files.append(item['name'])
     except Exception:
         try:
-            html_url = f"https://github.com/{encoded_user}/{encoded_repo}/tree/main/{urllib.parse.quote(GITHUB_FOLDER_HIST)}"
+            html_url = f"[https://github.com/](https://github.com/){encoded_user}/{encoded_repo}/tree/main/{urllib.parse.quote(GITHUB_FOLDER_HIST)}"
             req = urllib.request.Request(html_url, headers={'User-Agent': 'Mozilla/5.0'})
             with urllib.request.urlopen(req) as resp: html_text = resp.read().decode('utf-8')
             all_excel_files = list(set(re.findall(r'title="([^"]+\.xlsx)"', html_text)))
@@ -178,7 +177,7 @@ if "模組 A" in main_mode:
         for f in all_excel_files: file_options.append(f)
 
     cloud_pdf_files = []
-    github_api_pdf_url = f"https://api.github.com/repos/{encoded_user}/{encoded_repo}/contents/{urllib.parse.quote(GITHUB_FOLDER_PDF)}"
+    github_api_pdf_url = f"[https://api.github.com/repos/](https://api.github.com/repos/){encoded_user}/{encoded_repo}/contents/{urllib.parse.quote(GITHUB_FOLDER_PDF)}"
 
     try:
         req = urllib.request.Request(github_api_pdf_url, headers={'User-Agent': 'Mozilla/5.0'})
@@ -188,7 +187,7 @@ if "模組 A" in main_mode:
             if item['type'] == 'file' and item['name'].lower().endswith('.pdf'): cloud_pdf_files.append(item['name'])
     except Exception:
         try:
-            html_url = f"https://github.com/{encoded_user}/{encoded_repo}/tree/main/{urllib.parse.quote(GITHUB_FOLDER_PDF)}"
+            html_url = f"[https://github.com/](https://github.com/){encoded_user}/{encoded_repo}/tree/main/{urllib.parse.quote(GITHUB_FOLDER_PDF)}"
             req = urllib.request.Request(html_url, headers={'User-Agent': 'Mozilla/5.0'})
             with urllib.request.urlopen(req) as resp: 
                 html_text = resp.read().decode('utf-8')
@@ -210,7 +209,7 @@ if "模組 A" in main_mode:
 
     def fetch_excel_titles(file_name):
         encoded_name = urllib.parse.quote(file_name)
-        raw_url = f"https://raw.githubusercontent.com/{encoded_user}/{encoded_repo}/main/{GITHUB_FOLDER_HIST}/{encoded_name}"
+        raw_url = f"[https://raw.githubusercontent.com/](https://raw.githubusercontent.com/){encoded_user}/{encoded_repo}/main/{GITHUB_FOLDER_HIST}/{encoded_name}"
         try:
             req = urllib.request.Request(raw_url, headers={'User-Agent': 'Mozilla/5.0'})
             with urllib.request.urlopen(req) as resp: 
@@ -227,13 +226,13 @@ if "模組 A" in main_mode:
 
     def fetch_cloud_pdf_bytes(file_name):
         encoded_name = urllib.parse.quote(file_name)
-        raw_url = f"https://raw.githubusercontent.com/{encoded_user}/{encoded_repo}/main/{GITHUB_FOLDER_PDF}/{file_name}"
+        raw_url = f"[https://raw.githubusercontent.com/](https://raw.githubusercontent.com/){encoded_user}/{encoded_repo}/main/{GITHUB_FOLDER_PDF}/{file_name}"
         try:
             req = urllib.request.Request(raw_url, headers={'User-Agent': 'Mozilla/5.0'})
             with urllib.request.urlopen(req) as resp: return resp.read()
         except:
             try:
-                raw_url_alt = f"https://github.com/{encoded_user}/{encoded_repo}/raw/main/{GITHUB_FOLDER_PDF}/{file_name}"
+                raw_url_alt = f"[https://github.com/](https://github.com/){encoded_user}/{encoded_repo}/raw/main/{GITHUB_FOLDER_PDF}/{file_name}"
                 req = urllib.request.Request(raw_url_alt, headers={'User-Agent': 'Mozilla/5.0'})
                 with urllib.request.urlopen(req) as resp: return resp.read()
             except: return None
@@ -301,6 +300,7 @@ if "模組 A" in main_mode:
             if history_titles:
                 history_prompt_str = "\n【🚨 歷史考點去重指令】：以下是歷史已出題目的名單，你設計的新題目絕對禁止再次重複測驗以下已考過的生理機制、藥理靶點或鑑別觀念，必須挑選講義中全新的核心知識點命題：\n" + "\n".join([f"- {t}" for t in history_titles[:40]])
 
+            # 🌟 核心修復點：升級工業級 Prompt，死死限縮 JSON 格式
             raw_prompt_for_user = f"""你現在是一位資深的醫學與生物科學教授。請根據我為你提供的這份完整講義文字文本，精準鎖定這些講義文字內容中的【{page_range}】，並圍繞核心主題【{topic_name}】設計出高質感的題庫。
 
 【數量鐵律】：我要求你精準輸出「剛好」 {num_questions} 題五選一的單選題。絕對不能多出，也不能少出！
@@ -315,9 +315,15 @@ if "模組 A" in main_mode:
 - 正確答案（A, B, C, D, E）的總體數量分布要稍微平均一些。
 {history_prompt_str}
 
+【🚨 格式與語法輸出鐵律 - 違者拒收】：
+1. 請「只」輸出符合上述規範的標準 JSON 格式列表陣列格式（即以 [ 開頭，以 ] 結尾）。
+2. 絕對、嚴禁、不要包含任何 Markdown 包裝字串！例如：禁止在開頭與結尾夾帶 ```json 或 ```。
+3. 絕對不要輸出任何多餘的解釋、前言、後記或提示性文字。你的回答必須是 100% 可被機器直接解析的純 JSON 陣列。
+4. 嚴格注意物件內最後一個 Key-Value 欄位與最後一個物件的末尾，【絕對不能】有多餘的逗號 (Trailing Comma)。
+5. 詳解內容中若需要換行，請務必使用標準字元安全轉義序列「\\\\n」呈現，確保 JSON 的連續性。
+
 【輸出格式規範】：
 格式必須是標準的 JSON 格式列表(Array)，內含多個物件，每個物件的 Key 必須嚴格為："題目內容", "選項A", "選項B", "選項C", "選項D", "選項E", "正確答案", "針對各選項之詳解", "出處"
-請直接輸出完整的 JSON 陣列，不要包含 Markdown 外包裝字串，確保可以被 JSON 引擎直接解析。
 
 以下是為你夾帶的講義完整純文字文本：
 {combined_text_payload}
@@ -353,7 +359,7 @@ if "模組 A" in main_mode:
                         else:
                             lang_prompt = "每個物件中的「題目內容」與「選項A」~「選項E」必須完全使用純英文 (Full English) 撰寫。符合美國醫學執照考試 (USMLE) 專業醫學出題邏輯。"
 
-                        prompt = f"""開出教授教授資深的醫學與生物科學教授。請根據我為你提供的這份【完整】講義文字內容，{range_instruction}，並圍繞核心主題【{topic_name}】出題。
+                        prompt = f"""你現在是一位資深的醫學與生物科學教授。請根據我為你提供的這份【完整】講義文字內容，{range_instruction}，並圍繞核心主題【{topic_name}】出題。
                         【數量鐵律】：我要求你精準輸出「剛好」 {num_questions} 題五選一的單選題。絕對不能多出，也不能少出！
                         {lang_prompt}
                         {history_block}
@@ -362,8 +368,15 @@ if "模組 A" in main_mode:
                         - 【正確答案】請固定輸出大寫字母（A, B, C, D 或 E）。
                         - 【出處】請精準對照我文本中的頁碼標籤（例如：=== 【檔名】第 X 頁 ===），指出這題是出自哪一個檔案的第幾頁！
                         - 正確答案（A, B, C, D, E）的總體數量分布要稍微平均一些。
+                        
+                        【🚨 格式與語法輸出鐵律 - 違者拒收】：
+                        1. 請「只」輸出標準 JSON 格式列表陣列格式（即以 [ 開頭，以 ] 結尾）。
+                        2. 絕對、嚴禁、不要包含任何 Markdown 外包裝字串！禁止在開頭與結尾夾帶 ```json 等字眼。
+                        3. 絕對不要輸出任何多餘的解釋、前言或後記。
+                        4. 嚴格注意物件內最後一個欄位與最後一個物件的末尾，【絕對不能】有多餘的逗號。
+                        5. 詳解換行請務必使用安全轉義序列「\\\\n」呈現。
+
                         格式必須是 JSON 格式的列表(Array)，內含多個物件，每個物件的Key必須嚴格為："題目內容", "選項A", "選項B", "選項C", "選項D", "選項E", "正確答案", "針對各選項之詳解", "出處"
-                        請直接輸出完整的 JSON 陣列，不要包含 ```json 等任何 Markdown 外包裝字串。
 
                         以下是待讀取的講義完整純文字文本：
                         {combined_text_payload}
@@ -527,9 +540,18 @@ elif "模組 B" in main_mode:
                 try:
                     with st.spinner("🧠 任務封裝完成！正在跨世代智慧調度配對詳解中..."):
                         input_data_json = json.dumps(cleaned_questions, ensure_ascii=False)
+                        
+                        # 🌟 同步補強模組 B 的格式約束
                         prompt = f"""你現在是一位資深的醫學與生物科學教授。請根據我提供給你的 JSON 題目列表，【原封不動】地保留題目內容與選項，並補上最精準的【正確答案】以及極為詳細的【針對各選項之詳解】。
-                        格式必須符合 JSON 列表(Array)，Key 必須為：\"題目內容\", \"選項A\", \"選項B\", \"選項C\", \"選項D\", \"選項E\", \"正確答案\", \"針對各選項之詳解\"
-                        請直接輸出完整的 JSON 陣列，不要包含 ```json 等包裝。
+                        
+                        【🚨 格式與語法輸出鐵律 - 違者拒收】：
+                        1. 請「只」輸出標準 JSON 格式列表陣列格式（即以 [ 開頭，以 ] 結尾）。
+                        2. 絕對、嚴禁、不要包含任何 Markdown 包裝字串！禁止包含 ```json。
+                        3. 絕對不要輸出任何多餘的解釋、前言或後記。
+                        4. 嚴格注意物件內最後一個欄位與最後一個物件的末尾，【絕對不能】有多餘的逗號。
+                        5. 詳解換行請務必使用安全轉義序列「\\\\n」呈現。
+
+                        格式必須嚴格符合 JSON 列表(Array)，Key 必須為："題目內容", "選項A", "選項B", "選項C", "選項D", "選項E", "正確答案", "針對各選項之詳解"
                         {input_data_json}"""
                         
                         ai_response = generate_content_via_http_with_retry([prompt], api_key)
@@ -629,7 +651,7 @@ elif "模組 B" in main_mode:
         except Exception as e: st.error(f"讀取 Excel 檔案錯誤：{e}")
 
 # ==============================================================================
-# 🌟 模組 C：既有題庫已含詳解多管道輸入系統 (Excel / JSON 檔案 / JSON 貼上)
+# 🌟 模組 C：既有題庫已含詳解多管道輸入系統
 # ==============================================================================
 else:
     st.subheader("📄 模式 C：既有題庫 ➡️ 高品質渲染 Word 考卷 (免金鑰)")
@@ -704,7 +726,6 @@ else:
                 else: st.error("❌ 貼上的內容格式不合規，外層必須是標準的方括號列表陣列 `[...]`。")
             except Exception as e: st.error(f"文字 JSON 格式解析失敗，請檢查括號是否完整。錯誤原因: {e}")
 
-    # 🌟 【終極對齊完美閉合】：將整個 C 模式的按鈕與其引發的 try-except 做絕對垂直對齊，完美消滅語法編譯死結！
     if len(raw_items_list) > 0:
         start_q_num_c = st.number_input("🔢 設定「起始題號」", min_value=1, max_value=999, value=1, step=1, key="mode_c_qnum")
         end_q_num_c = start_q_num_c + len(raw_items_list) - 1
@@ -795,7 +816,6 @@ else:
             except Exception as e:
                 st.error(f"轉換排版過程發生錯誤：{e}")
 
-        # 🚀 下載區塊完全抽離至 try-except 的平行外部，安全無暇
         if "sol_word_c" in st.session_state:
             st.success("🎉 Word 考卷排版渲染已完美達成！請點擊下方按鈕下載：")
             s_name_c = sanitize_f(st.session_state["saved_exam_title_c"])
