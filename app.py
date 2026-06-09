@@ -118,11 +118,36 @@ env_key = ""
 github_token = ""
 
 try:
-    if "GEMINI_API_KEY" in st.secrets: 
-        env_key = st.secrets["GEMINI_API_KEY"]
-    # 🌟 徹底移入後台：優先且只從 Streamlit Secrets 安全通道讀取，絕不暴露於前端
-    if "GITHUB_TOKEN" in st.secrets:
-        github_token = st.secrets["GITHUB_TOKEN"].strip()
+    # [超高相容性 Secrets 讀取引擎]：不分大小寫、命名方式、嵌套結構，100% 穩定捕獲！
+    # 1. 檢查 Gemini API 密鑰的多重變體
+    for k in ["GEMINI_API_KEY", "gemini_api_key", "Gemini_Api_Key", "GEMINI_KEY", "gemini_key", "api_key", "API_KEY"]:
+        if k in st.secrets:
+            env_key = st.secrets[k].strip()
+            break
+            
+    # 2. 檢查 GitHub Token 扁平變體
+    for k in ["GITHUB_TOKEN", "github_token", "GitHub_Token", "git_token", "GIT_TOKEN", "GITHUB_PAT", "github_pat", "GitHub_Pat"]:
+        if k in st.secrets:
+            github_token = st.secrets[k].strip()
+            break
+    
+    # 3. 檢查巢狀 TOML 配置，如 [github]\n token = "..."
+    if not github_token and "github" in st.secrets:
+        gh_sec = st.secrets["github"]
+        if isinstance(gh_sec, dict) or hasattr(gh_sec, "get"):
+            for k in ["token", "token_key", "pat", "GITHUB_TOKEN", "github_token"]:
+                if k in gh_sec:
+                    github_token = gh_sec[k].strip()
+                    break
+                    
+    # 4. 檢查巢狀 TOML 的 Gemini 配置
+    if not env_key and "gemini" in st.secrets:
+        gem_sec = st.secrets["gemini"]
+        if isinstance(gem_sec, dict) or hasattr(gem_sec, "get"):
+            for k in ["api_key", "key", "GEMINI_API_KEY", "gemini_api_key"]:
+                if k in gem_sec:
+                    env_key = gem_sec[k].strip()
+                    break
 except Exception: 
     pass
 
@@ -133,9 +158,12 @@ with st.sidebar:
     
     st.markdown("---")
     st.header("☁️ GitHub 雲端備份狀態")
-    # 🌟 在側邊欄僅展示同步狀態，不提供輸入框，保持介面清爽安全
+    # 🌟 徹底移入後台：在側邊欄僅展示同步狀態，不提供輸入框，並提供彈性開關
+    auto_github_save = False
     if github_token:
         st.success("🟢 雲端同步備份已啟動 (已偵測到後台 GITHUB_TOKEN)")
+        # 🌟 [全新功能]：預設為 True，但可手動取消勾選不儲存至 GitHub
+        auto_github_save = st.checkbox("自動儲存至 GitHub 歷史庫", value=True, help="預設開啟。若取消勾選，題庫只會保留在本地下載，不會同步推送至 GitHub history_db。")
     else:
         st.info("ℹ️ 雲端同步備份未啟動 (未偵測到後台 GITHUB_TOKEN)")
         
@@ -380,7 +408,7 @@ if "模組 A" in main_mode:
 """
             st.code(raw_prompt_for_user, language="text")
             
-            # 🌟 [全新亮點]：同版面 JSON 回貼排版解析器，讓組員不用跳去模組 C 也能一體化操作
+            # 🌟 同版面 JSON 回貼排版解析器，讓組員不用跳去模組 C 也能一體化操作
             st.markdown("---")
             st.subheader("📥 🚀 A' 快速回貼解析與雙軸排版引擎")
             st.caption("複製上方 Prompt 至 ChatGPT 或 Claude 等外部 AI。將 AI 產出的 JSON 格式題庫文字，直接貼在下方，即可於此版面一鍵秒速生成 Word 試卷與 Excel 題庫！")
@@ -439,6 +467,10 @@ if "模組 A" in main_mode:
                                     for idx, item in enumerate(json_data_ap):
                                         current_q_num = int(start_q_num) + idx
                                         
+                                        # 🌟 [功能 A' 換題自動分頁邏輯]：除第一題外，每一題開頭強插 page break
+                                        if idx > 0:
+                                            doc_ap.add_page_break()
+                                            
                                         q_txt = item.get("題目內容", item.get("題庫內容", ""))
                                         doc_ap.add_paragraph(f"{current_q_num}. {q_txt}").paragraph_format.space_after = Pt(6)
                                         
@@ -448,7 +480,7 @@ if "模組 A" in main_mode:
                                                 op = doc_ap.add_paragraph(f"({lbl}) {opt_txt}")
                                                 op.paragraph_format.left_indent, op.paragraph_format.space_after = Pt(18), Pt(0)
                                         
-                                        # 🌟 [防瞄安全防線]：在選項與簡答之間加上分界線
+                                        # [防瞄安全防線]：在選項與簡答之間加上分界線
                                         sep_p = doc_ap.add_paragraph()
                                         sep_p.paragraph_format.space_before = Pt(6)
                                         sep_p.paragraph_format.space_after = Pt(6)
@@ -536,7 +568,8 @@ if "模組 A" in main_mode:
                                     st.session_state["sol_excel_ap"] = final_excel_bytes_ap.getvalue()
                                     st.session_state["saved_exam_title_ap"] = final_title_filename_ap
                                     
-                                    if github_token:
+                                    # 🌟 [動態同步控制器]：只在勾選啟用時，才推送同步至 GitHub
+                                    if github_token and auto_github_save:
                                         with st.spinner("☁️ 正在即時同步備份 Excel 至 GitHub 歷史庫..."):
                                             success, msg = upload_excel_to_github(final_excel_bytes_ap.getvalue(), f"{final_title_filename_ap}.xlsx", github_token)
                                             if success:
@@ -694,7 +727,11 @@ if "模組 A" in main_mode:
                         title_p.add_run(final_title_filename).bold = True
                         title_p.runs[-1].font.size = Pt(16)
 
-                        for r in processed_rows:
+                        for idx, r in enumerate(processed_rows):
+                            # 🌟 [功能 A 換題自動分頁邏輯]：除第一題外，每一題開頭強插 page break
+                            if idx > 0:
+                                doc.add_page_break()
+                                
                             doc.add_paragraph(f"{r['題號']}. {r['題目內容']}").paragraph_format.space_after = Pt(6)
                             for lbl in opt_labels:
                                 txt = r.get(f'選項{lbl}', '')
@@ -702,7 +739,7 @@ if "模組 A" in main_mode:
                                     op = doc.add_paragraph(f"({lbl}) {txt}")
                                     op.paragraph_format.left_indent, op.paragraph_format.space_after = Pt(18), Pt(0)
                             
-                            # 🌟 [防瞄安全防線]：在選項與簡答之間加上分界線
+                            # [防瞄安全防線]：在選項與簡答之間加上分界線
                             sep_p = doc.add_paragraph()
                             sep_p.paragraph_format.space_before = Pt(6)
                             sep_p.paragraph_format.space_after = Pt(6)
@@ -743,8 +780,8 @@ if "模組 A" in main_mode:
                         st.session_state["generated_word_a"] = final_word_bytes.getvalue()
                         st.session_state["saved_exam_title_a"] = final_title_filename
                         
-                        # 🌟 [即時同步]：若設定了 Token，自動推送至 GitHub 歷史庫
-                        if github_token:
+                        # 🌟 [動態同步控制器]：只在勾選啟用時，才推送同步至 GitHub
+                        if github_token and auto_github_save:
                             with st.spinner("☁️ 正在即時同步備份 Excel 至 GitHub 歷史庫..."):
                                 success, msg = upload_excel_to_github(final_excel_bytes.getvalue(), f"{final_title_filename}.xlsx", github_token)
                                 if success:
@@ -880,7 +917,11 @@ elif "模組 B" in main_mode:
                         title_p_b.add_run(final_title_filename_b).bold = True
                         title_p_b.runs[-1].font.size = Pt(16)
 
-                        for r in processed_rows_b:
+                        for idx, r in enumerate(processed_rows_b):
+                            # 🌟 [功能 B 換題自動分頁邏輯]：除第一題外，每一題開頭強插 page break
+                            if idx > 0:
+                                doc_b.add_page_break()
+                                
                             doc_b.add_paragraph(f"{r['題號']}. {r['題目內容']}").paragraph_format.space_after = Pt(6)
                             for lbl in opt_labels:
                                 txt = r.get(f'選項{lbl}', '')
@@ -922,8 +963,8 @@ elif "模組 B" in main_mode:
                         st.session_state["sol_word_b"] = final_word_bytes_b.getvalue()
                         st.session_state["saved_exam_title_b"] = final_title_filename_b
                         
-                        # 🌟 [即時同步]：若設定了 Token，自動推送至 GitHub 歷史庫
-                        if github_token:
+                        # 🌟 [動態同步控制器]：只在勾選啟用時，才推送同步至 GitHub
+                        if github_token and auto_github_save:
                             with st.spinner("☁️ 正在即時同步備份 Excel 至 GitHub 歷史庫..."):
                                 success, msg = upload_excel_to_github(final_excel_bytes_b.getvalue(), f"{final_title_filename_b}.xlsx", github_token)
                                 if success:
@@ -1041,6 +1082,10 @@ else:
                     for idx, item in enumerate(raw_items_list):
                         current_q_num = int(start_q_num_c) + idx
                         
+                        # 🌟 [功能 C 換題自動分頁邏輯]：除第一題外，每一題開頭強插 page break
+                        if idx > 0:
+                            doc_c.add_page_break()
+                        
                         # --- 寫入 Word ---
                         q_txt = item.get("題目內容", item.get("題庫內容", ""))
                         doc_c.add_paragraph(f"{current_q_num}. {q_txt}").paragraph_format.space_after = Pt(6)
@@ -1051,7 +1096,7 @@ else:
                                 op = doc_c.add_paragraph(f"({lbl}) {opt_txt}")
                                 op.paragraph_format.left_indent, op.paragraph_format.space_after = Pt(18), Pt(0)
                         
-                        # 🌟 [防瞄安全防線]：在選項與簡答之間加上分界線
+                        # [防瞄安全防線]：在選項與簡答之間加上分界線
                         sep_p = doc_c.add_paragraph()
                         sep_p.paragraph_format.space_before = Pt(6)
                         sep_p.paragraph_format.space_after = Pt(6)
@@ -1141,8 +1186,8 @@ else:
                     st.session_state["sol_excel_c"] = final_excel_bytes_c.getvalue()
                     st.session_state["saved_exam_title_c"] = final_title_filename_c
                     
-                    # 🌟 [即時同步]：若設定了 Token，自動推送至 GitHub 歷史庫
-                    if github_token:
+                    # 🌟 [動態同步控制器]：只在勾選啟用時，才推送同步至 GitHub
+                    if github_token and auto_github_save:
                         with st.spinner("☁️ 正在即時同步備份 Excel 至 GitHub 歷史庫..."):
                             success, msg = upload_excel_to_github(final_excel_bytes_c.getvalue(), f"{final_title_filename_c}.xlsx", github_token)
                             if success:
