@@ -15,7 +15,7 @@ from openpyxl import load_workbook
 from openpyxl.styles import Alignment, Font, Border, Side
 from openpyxl.utils import get_column_letter
 
-# Word 處理
+# Word 處理相關
 from docx import Document
 from docx.shared import Pt, Cm, RGBColor
 from docx.oxml.ns import qn
@@ -113,62 +113,73 @@ st.set_page_config(page_title="AI 醫學共筆題庫工作站", page_icon="🧠"
 st.title("🧠 AI 醫學共筆題庫三模工作站")
 st.markdown("共筆組長專屬完全體：整合【講義智慧出題】、【純題配詳解】與【現成題庫轉 Word】三大核心功能！")
 
-# ==================== 1. 🔑 共享 API 金鑰與 GitHub 後台備份設定 ====================
+# ==================== 1. 🔑 共享 API 金鑰、OmniRoute 與 GitHub 後台設定 ====================
 env_key = ""
 github_token = ""
+omniroute_base_url = ""
+omniroute_api_key = ""
+omniroute_model = ""
 
 try:
-    # [超高相容性 Secrets 讀取引擎]：不分大小寫、命名方式、嵌套結構，100% 穩定捕獲！
-    # 1. 檢查 Gemini API 密鑰的多重變體
+    # 1. 檢查 Gemini API 密鑰
     for k in ["GEMINI_API_KEY", "gemini_api_key", "Gemini_Api_Key", "GEMINI_KEY", "gemini_key", "api_key", "API_KEY"]:
         if k in st.secrets:
             env_key = st.secrets[k].strip()
             break
             
-    # 2. 檢查 GitHub Token 扁平變體
+    # 2. 檢查 GitHub Token
     for k in ["GITHUB_TOKEN", "github_token", "GitHub_Token", "git_token", "GIT_TOKEN", "GITHUB_PAT", "github_pat", "GitHub_Pat"]:
         if k in st.secrets:
             github_token = st.secrets[k].strip()
             break
     
-    # 3. 檢查巢狀 TOML 配置，如 [github]\n token = "..."
-    if not github_token and "github" in st.secrets:
-        gh_sec = st.secrets["github"]
-        if isinstance(gh_sec, dict) or hasattr(gh_sec, "get"):
-            for k in ["token", "token_key", "pat", "GITHUB_TOKEN", "github_token"]:
-                if k in gh_sec:
-                    github_token = gh_sec[k].strip()
-                    break
-                    
-    # 4. 檢查巢狀 TOML 的 Gemini 配置
-    if not env_key and "gemini" in st.secrets:
-        gem_sec = st.secrets["gemini"]
-        if isinstance(gem_sec, dict) or hasattr(gem_sec, "get"):
-            for k in ["api_key", "key", "GEMINI_API_KEY", "gemini_api_key"]:
-                if k in gem_sec:
-                    env_key = gem_sec[k].strip()
-                    break
+    # 3. 檢查 OmniRoute 參數
+    for k in ["OMNIROUTE_BASE_URL", "omniroute_base_url"]:
+        if k in st.secrets: omniroute_base_url = st.secrets[k].strip(); break
+    for k in ["OMNIROUTE_API_KEY", "omniroute_api_key"]:
+        if k in st.secrets: omniroute_api_key = st.secrets[k].strip(); break
+    for k in ["OMNIROUTE_MODEL", "omniroute_model"]:
+        if k in st.secrets: omniroute_model = st.secrets[k].strip(); break
+
 except Exception: 
     pass
 
 with st.sidebar:
-    st.header("🔑 API 金鑰配置")
-    user_live_key = st.text_input("請輸入 Gemini API Key：", value=env_key if env_key else "", type="password")
-    api_key = user_live_key.strip() if user_live_key else env_key
+    st.header("🔑 API 金鑰與 OmniRoute 配置")
+    
+    use_omniroute = st.toggle(
+        "🚀 啟用 OmniRoute 多 Key 負載均衡 (Combo)", 
+        value=bool(omniroute_base_url or omniroute_api_key),
+        help="開啟後將透過本地或遠端的 OmniRoute (OpenAI 格式 `/v1/chat/completions`) 進行多 API Key 輪詢發送，徹底解決 5 RPM 限流與 503 爆量問題。"
+    )
+    
+    if use_omniroute:
+        omniroute_base_url = st.text_input("OmniRoute Base URL：", value=omniroute_base_url if omniroute_base_url else "http://localhost:20128/v1")
+        omniroute_api_key = st.text_input("OmniRoute API Key：", value=omniroute_api_key if omniroute_api_key else "", type="password", placeholder="sk-...")
+        omniroute_model = st.text_input("OmniRoute Combo/Model 名稱：", value=omniroute_model if omniroute_model else "gemini-load-balancer")
+        api_key = ""
+    else:
+        user_live_key = st.text_input("請輸入 Gemini API Key：", value=env_key if env_key else "", type="password")
+        api_key = user_live_key.strip() if user_live_key else env_key
     
     st.markdown("---")
     st.header("☁️ GitHub 雲端備份狀態")
-    # 🌟 徹底移入後台：在側邊欄僅展示同步狀態，不提供輸入框，並提供彈性開關
     auto_github_save = False
     if github_token:
         st.success("🟢 雲端同步備份已啟動 (已偵測到後台 GITHUB_TOKEN)")
-        # 🌟 [全新功能]：預設為 True，但可手動取消勾選不儲存至 GitHub
         auto_github_save = st.checkbox("自動儲存至 GitHub 歷史庫", value=True, help="預設開啟。若取消勾選，題庫只會保留在本地下載，不會同步推送至 GitHub history_db。")
     else:
         st.info("ℹ️ 雲端同步備份未啟動 (未偵測到後台 GITHUB_TOKEN)")
         
     st.markdown("---")
-    st.caption("💡 提示：『功能 A'』與『模組 C』為本地純文字引擎與排版引擎，完全不需要輸入 Gemini Key 即可完美運作！若需自動同步備份，請至 Streamlit 後台 Settings ➡️ Secrets 中配置 `GITHUB_TOKEN`。")
+    st.caption("💡 提示：『功能 A'』與『模組 C』為本地純文字引擎與排版引擎，不需要呼叫大模型即可完美運作！")
+
+omniroute_cfg = {
+    "enabled": use_omniroute,
+    "base_url": omniroute_base_url.strip() if omniroute_base_url else "",
+    "api_key": omniroute_api_key.strip() if omniroute_api_key else "",
+    "model": omniroute_model.strip() if omniroute_model else "gemini-load-balancer"
+}
 
 # 導覽器放置在金鑰檢查前，確保介面正常渲染
 main_mode = st.radio(
@@ -184,12 +195,50 @@ main_mode = st.radio(
 
 st.markdown("---")
 
-if not api_key and main_mode in ["📚 模組 A：講義圖文智慧出題", "📝 模組 B：現成題目自動配詳解"]:
-    st.warning("⚠️ 請先在左側邊欄填入您在 Google AI Studio 申請的 `AIzaSy` 金鑰以解鎖系統。")
+# 檢查是否有合法的通訊管道 (Gemini Key 或 OmniRoute)
+has_valid_channel = bool(api_key or (use_omniroute and omniroute_api_key))
+if not has_valid_channel and main_mode in ["📚 模組 A：講義圖文智慧出題", "📝 模組 B：現成題目自動配詳解"]:
+    st.warning("⚠️ 請先在左側邊欄填入 Gemini API Key，或開啟並設定 OmniRoute 負載均衡配置。")
     st.stop()
 
-# ==================== 🌟 共享的終極單發 HTTP 直連函數 ====================
-def generate_content_via_http_with_retry(contents_list, api_key, max_retries=4):
+# ==================== 🌟 共享的雙軌 HTTP 通訊函數 (支援 Gemini & OmniRoute) ====================
+def generate_content_via_http_with_retry(contents_list, api_key="", max_retries=4, omniroute_cfg=None):
+    # 🌟 [軌道 1]：OmniRoute 負載均衡發送 (OpenAI `/chat/completions` 協議)
+    if omniroute_cfg and omniroute_cfg.get("enabled") and omniroute_cfg.get("base_url") and omniroute_cfg.get("api_key"):
+        base_url = omniroute_cfg["base_url"].rstrip("/")
+        omni_key = omniroute_cfg["api_key"]
+        model_name = omniroute_cfg.get("model") or "gemini-load-balancer"
+        
+        prompt_text = "\n".join([str(item) for item in contents_list])
+        url = f"{base_url}/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {omni_key}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": model_name,
+            "messages": [{"role": "user", "content": prompt_text}]
+        }
+        
+        for attempt in range(max_retries):
+            try:
+                resp = requests.post(url, headers=headers, json=payload, timeout=120)
+                if resp.status_code == 200:
+                    st.session_state["last_api_call_time"] = time.time()
+                    res_json = resp.json()
+                    return res_json['choices'][0]['message']['content']
+                elif resp.status_code in [429, 503]:
+                    time.sleep(2)
+                    continue
+                else:
+                    st.warning(f"OmniRoute 轉發回報狀態碼 {resp.status_code}，正在重新嘗試...")
+            except Exception:
+                pass
+            time.sleep((2 ** attempt) + random.uniform(0, 1))
+            
+        raise Exception("OmniRoute 轉發服務無法正常回應，請確認 OmniRoute 服務正常運行且 Base URL / Key 正確。")
+
+    # 🌟 [軌道 2]：Gemini 直連官方 API (多模型輪詢機制)
     models_pool = ["gemini-2.5-flash", "gemini-3-flash", "gemini-3.5-flash"]
     parts = []
     for item in contents_list:
@@ -408,7 +457,7 @@ if "模組 A" in main_mode:
 """
             st.code(raw_prompt_for_user, language="text")
             
-            # 🌟 同版面 JSON 回貼排版解析器，讓組員不用跳去模組 C 也能一體化操作
+            # 🌟 同版面 JSON 回貼排版解析器
             st.markdown("---")
             st.subheader("📥 🚀 A' 快速回貼解析與雙軸排版引擎")
             st.caption("複製上方 Prompt 至 ChatGPT 或 Claude 等外部 AI。將 AI 產出的 JSON 格式題庫文字，直接貼在下方，即可於此版面一鍵秒速生成 Word 試卷與 Excel 題庫！")
@@ -427,7 +476,6 @@ if "模組 A" in main_mode:
                     if isinstance(json_data_ap, list):
                         st.success(f"📝 成功辨識複製貼上的 JSON 文字！偵測到 **{len(json_data_ap)}** 道題目。")
                         
-                        # 在 A' 內建專屬的檔名與標題設定欄位
                         st.markdown("---")
                         st.subheader("🏷️ 設定大標題與檔名")
                         end_q_num_ap = start_q_num + len(json_data_ap) - 1
@@ -447,7 +495,6 @@ if "模組 A" in main_mode:
                         if st.button("📥 一鍵排版產出 Word 試卷與 Excel 題庫 📥", key="a_prime_convert_btn", use_container_width=True):
                             try:
                                 with st.spinner("🎨 正在啟動雙軸排版引擎，同時美化 Word 與 Excel 中..."):
-                                    # 1. 產生高質感 Word
                                     doc_ap = Document()
                                     sec_ap = doc_ap.sections[0]
                                     sec_ap.top_margin = sec_ap.bottom_margin = sec_ap.left_margin = sec_ap.right_margin = Cm(1.27)
@@ -467,7 +514,7 @@ if "模組 A" in main_mode:
                                     for idx, item in enumerate(json_data_ap):
                                         current_q_num = int(start_q_num) + idx
                                         
-                                        # 🌟 [功能 A' 換題自動分頁邏輯]：除第一題外，每一題開頭強插 page break
+                                        # 🌟 [換題自動分頁]：除第一題外，每一題開頭強插 page break
                                         if idx > 0:
                                             doc_ap.add_page_break()
                                             
@@ -485,7 +532,7 @@ if "模組 A" in main_mode:
                                         sep_p.paragraph_format.space_before = Pt(6)
                                         sep_p.paragraph_format.space_after = Pt(6)
                                         run_sep = sep_p.add_run("==================================================")
-                                        run_sep.font.color.rgb = RGBColor(180, 180, 180) # 淡灰色，不過於刺眼
+                                        run_sep.font.color.rgb = RGBColor(180, 180, 180)
                                                 
                                         ans_txt = str(item.get("正確答案", "")).upper().strip()
                                         if ans_txt:
@@ -535,7 +582,6 @@ if "模組 A" in main_mode:
                                         }
                                         processed_rows_ap.append(row_ap)
                                         
-                                    # 2. 產生高質感 Excel
                                     excel_out_ap = io.BytesIO()
                                     pd.DataFrame(processed_rows_ap).to_excel(excel_out_ap, index=False)
                                     excel_out_ap.seek(0)
@@ -568,7 +614,6 @@ if "模組 A" in main_mode:
                                     st.session_state["sol_excel_ap"] = final_excel_bytes_ap.getvalue()
                                     st.session_state["saved_exam_title_ap"] = final_title_filename_ap
                                     
-                                    # 🌟 [動態同步控制器]：只在勾選啟用時，才推送同步至 GitHub
                                     if github_token and auto_github_save:
                                         with st.spinner("☁️ 正在即時同步備份 Excel 至 GitHub 歷史庫..."):
                                             success, msg = upload_excel_to_github(final_excel_bytes_ap.getvalue(), f"{final_title_filename_ap}.xlsx", github_token)
@@ -579,7 +624,6 @@ if "模組 A" in main_mode:
                             except Exception as e:
                                 st.error(f"轉換排版過程發生錯誤：{e}")
                         
-                        # 平行外部下載按鈕
                         if "sol_word_ap" in st.session_state and "sol_excel_ap" in st.session_state:
                             st.success("🎉 Word 試卷與 Excel 題庫排版渲染已完美達成！請點擊下方按鈕下載：")
                             s_name_ap = sanitize_f(st.session_state["saved_exam_title_ap"])
@@ -604,7 +648,7 @@ if "模組 A" in main_mode:
                 except Exception as e: st.error(f"文字 JSON 格式解析失敗，請檢查括號是否完整。錯誤原因: {e}")
 
         # ==============================================================================
-        # 主功能支線：自動在網頁中呼叫 API 跑完 (此功能保留檔名與標題組裝)
+        # 主功能支線：自動在網頁中呼叫 API 跑完 (支援 Gemini 與 OmniRoute)
         # ==============================================================================
         else:
             st.subheader("🏷️ 設定大標題與檔名")
@@ -631,7 +675,7 @@ if "模組 A" in main_mode:
                             c_bytes = fetch_cloud_pdf_bytes(cloud_pdf_name)
                             if c_bytes: combined_text_payload += extract_clean_text_from_pdf(c_bytes, cloud_pdf_name)
 
-                    with st.spinner("🧠 任務封裝完成！正透過智慧負載分流引擎發送至雲端核心..."):
+                    with st.spinner("🧠 任務封裝完成！正發送至雲端核心/OmniRoute 進行智慧出題..."):
                         range_instruction = f"精準鎖定這些講義文字內容中的【{page_range}】" if "整份" not in page_range and "全部" not in page_range else "「通盤掃描並融合這幾份講義文字」的完整內容，宏觀地在不同的章節與核心觀念中提取重點"
                         history_block = ""
                         if history_titles: 
@@ -672,7 +716,7 @@ if "模組 A" in main_mode:
                         {combined_text_payload}
                         """
 
-                        clean_response = generate_content_via_http_with_retry([prompt], api_key)
+                        clean_response = generate_content_via_http_with_retry([prompt], api_key, omniroute_cfg=omniroute_cfg)
                         clean_response = clean_response.strip()
                         if clean_response.startswith(BT_JSON): clean_response = clean_response.split(BT_JSON)[1].split(BT_ONLY)[0].strip()
                         elif clean_response.startswith(BT_ONLY): clean_response = clean_response.split(BT_ONLY)[1].split(BT_ONLY)[0].strip()
@@ -728,7 +772,7 @@ if "模組 A" in main_mode:
                         title_p.runs[-1].font.size = Pt(16)
 
                         for idx, r in enumerate(processed_rows):
-                            # 🌟 [功能 A 換題自動分頁邏輯]：除第一題外，每一題開頭強插 page break
+                            # 🌟 [換題自動分頁]：除第一題外，每一題開頭強插 page break
                             if idx > 0:
                                 doc.add_page_break()
                                 
@@ -744,7 +788,7 @@ if "模組 A" in main_mode:
                             sep_p.paragraph_format.space_before = Pt(6)
                             sep_p.paragraph_format.space_after = Pt(6)
                             run_sep = sep_p.add_run("==================================================")
-                            run_sep.font.color.rgb = RGBColor(180, 180, 180) # 淡灰色，不過於刺眼
+                            run_sep.font.color.rgb = RGBColor(180, 180, 180)
 
                             ans_p = doc.add_paragraph()
                             ans_p.paragraph_format.space_before = Pt(6)
@@ -780,7 +824,6 @@ if "模組 A" in main_mode:
                         st.session_state["generated_word_a"] = final_word_bytes.getvalue()
                         st.session_state["saved_exam_title_a"] = final_title_filename
                         
-                        # 🌟 [動態同步控制器]：只在勾選啟用時，才推送同步至 GitHub
                         if github_token and auto_github_save:
                             with st.spinner("☁️ 正在即時同步備份 Excel 至 GitHub 歷史庫..."):
                                 success, msg = upload_excel_to_github(final_excel_bytes.getvalue(), f"{final_title_filename}.xlsx", github_token)
@@ -850,7 +893,7 @@ elif "模組 B" in main_mode:
 
             if st.button("⚡ 開始全自動配對醫學詳解 ⚡", use_container_width=True):
                 try:
-                    with st.spinner("🧠 任務封裝完成！正在跨世代智慧調度配對詳解中..."):
+                    with st.spinner("🧠 任務封裝完成！正在發送至雲端核心/OmniRoute 配對詳解中..."):
                         input_data_json = json.dumps(cleaned_questions, ensure_ascii=False)
                         prompt = f"""你現在是一位資深的醫學與生物科學教授。請根據我提供給你的 JSON 題目列表，【原封不動】地保留題目內容與選項，並補上最精準的【正確答案】以及極為詳細的【針對各選項之詳解】。
                         
@@ -864,7 +907,7 @@ elif "模組 B" in main_mode:
                         格式必須嚴格符合 JSON 列表(Array)，Key 必須為："題目內容", "選項A", "選項B", "選項C", "選項D", "選項E", "正確答案", "針對各選項之詳解"
                         {input_data_json}"""
                         
-                        ai_response = generate_content_via_http_with_retry([prompt], api_key)
+                        ai_response = generate_content_via_http_with_retry([prompt], api_key, omniroute_cfg=omniroute_cfg)
                         ai_response = ai_response.strip()
                         if ai_response.startswith(BT_JSON): ai_response = ai_response.split(BT_JSON)[1].split(BT_ONLY)[0].strip()
                         elif ai_response.startswith(BT_ONLY): ai_response = ai_response.split(BT_ONLY)[1].split(BT_ONLY)[0].strip()
@@ -918,7 +961,7 @@ elif "模組 B" in main_mode:
                         title_p_b.runs[-1].font.size = Pt(16)
 
                         for idx, r in enumerate(processed_rows_b):
-                            # 🌟 [功能 B 換題自動分頁邏輯]：除第一題外，每一題開頭強插 page break
+                            # 🌟 [換題自動分頁]：除第一題外，每一題開頭強插 page break
                             if idx > 0:
                                 doc_b.add_page_break()
                                 
@@ -929,12 +972,12 @@ elif "模組 B" in main_mode:
                                     op = doc_b.add_paragraph(f"({lbl}) {txt}")
                                     op.paragraph_format.left_indent, op.paragraph_format.space_after = Pt(18), Pt(0)
                             
-                            # 🌟 [防瞄安全防線]：在選項與簡答之間加上分界線
+                            # [防瞄安全防線]：在選項與簡答之間加上分界線
                             sep_p = doc_b.add_paragraph()
                             sep_p.paragraph_format.space_before = Pt(6)
                             sep_p.paragraph_format.space_after = Pt(6)
                             run_sep = sep_p.add_run("==================================================")
-                            run_sep.font.color.rgb = RGBColor(180, 180, 180) # 淡灰色，不過於刺眼
+                            run_sep.font.color.rgb = RGBColor(180, 180, 180)
 
                             ans_p = doc_b.add_paragraph()
                             ans_p.paragraph_format.space_before = Pt(6)
@@ -963,7 +1006,6 @@ elif "模組 B" in main_mode:
                         st.session_state["sol_word_b"] = final_word_bytes_b.getvalue()
                         st.session_state["saved_exam_title_b"] = final_title_filename_b
                         
-                        # 🌟 [動態同步控制器]：只在勾選啟用時，才推送同步至 GitHub
                         if github_token and auto_github_save:
                             with st.spinner("☁️ 正在即時同步備份 Excel 至 GitHub 歷史庫..."):
                                 success, msg = upload_excel_to_github(final_excel_bytes_b.getvalue(), f"{final_title_filename_b}.xlsx", github_token)
@@ -1061,7 +1103,6 @@ else:
         if st.button("📥 一鍵排版產出 Word 試卷與 Excel 題庫 📥", use_container_width=True):
             try:
                 with st.spinner("🎨 正在啟動雙軸排版引擎，同時美化 Word 與 Excel 中..."):
-                    # 1. 產生高質感 Word
                     doc_c = Document()
                     sec_c = doc_c.sections[0]
                     sec_c.top_margin = sec_c.bottom_margin = sec_c.left_margin = sec_c.right_margin = Cm(1.27)
@@ -1082,11 +1123,10 @@ else:
                     for idx, item in enumerate(raw_items_list):
                         current_q_num = int(start_q_num_c) + idx
                         
-                        # 🌟 [功能 C 換題自動分頁邏輯]：除第一題外，每一題開頭強插 page break
+                        # 🌟 [換題自動分頁]：除第一題外，每一題開頭強插 page break
                         if idx > 0:
                             doc_c.add_page_break()
                         
-                        # --- 寫入 Word ---
                         q_txt = item.get("題目內容", item.get("題庫內容", ""))
                         doc_c.add_paragraph(f"{current_q_num}. {q_txt}").paragraph_format.space_after = Pt(6)
                         
@@ -1101,7 +1141,7 @@ else:
                         sep_p.paragraph_format.space_before = Pt(6)
                         sep_p.paragraph_format.space_after = Pt(6)
                         run_sep = sep_p.add_run("==================================================")
-                        run_sep.font.color.rgb = RGBColor(180, 180, 180) # 淡灰色，不過於刺眼
+                        run_sep.font.color.rgb = RGBColor(180, 180, 180)
 
                         ans_txt = str(item.get("正確答案", "")).upper().strip()
                         if ans_txt:
@@ -1137,7 +1177,6 @@ else:
                             
                         doc_c.add_paragraph("")
                         
-                        # --- 整理資料準備給 Excel ---
                         row_dict = {
                             '題號': current_q_num,
                             '題目內容': str(q_txt).strip(),
@@ -1152,7 +1191,6 @@ else:
                         }
                         processed_rows_c.append(row_dict)
 
-                    # 2. 產生高質感 Excel
                     excel_out_c = io.BytesIO()
                     pd.DataFrame(processed_rows_c).to_excel(excel_out_c, index=False)
                     excel_out_c.seek(0)
@@ -1181,12 +1219,10 @@ else:
                     final_excel_bytes_c = io.BytesIO()
                     wb_c.save(final_excel_bytes_c)
                     
-                    # 寫入狀態
                     st.session_state["sol_word_c"] = final_word_bytes_c.getvalue()
                     st.session_state["sol_excel_c"] = final_excel_bytes_c.getvalue()
                     st.session_state["saved_exam_title_c"] = final_title_filename_c
                     
-                    # 🌟 [動態同步控制器]：只在勾選啟用時，才推送同步至 GitHub
                     if github_token and auto_github_save:
                         with st.spinner("☁️ 正在即時同步備份 Excel 至 GitHub 歷史庫..."):
                             success, msg = upload_excel_to_github(final_excel_bytes_c.getvalue(), f"{final_title_filename_c}.xlsx", github_token)
@@ -1198,7 +1234,6 @@ else:
             except Exception as e:
                 st.error(f"轉換排版過程發生錯誤：{e}")
 
-        # 下載按鈕 (平級抽離，完全獨立於 try-except 外部，安全且完美對齊)
         if "sol_word_c" in st.session_state and "sol_excel_c" in st.session_state:
             st.success("🎉 Word 試卷與 Excel 題庫排版渲染已完美達成！請點擊下方按鈕下載：")
             s_name_c = sanitize_f(st.session_state["saved_exam_title_c"])
