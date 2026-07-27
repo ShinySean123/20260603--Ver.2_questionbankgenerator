@@ -237,7 +237,7 @@ if "模組 A" in main_mode:
     st.markdown("---")
 
     # ==============================================================================
-    # 🌟 支線：A' 客製化 Prompt 複製器 (完全無需上傳檔案即可秒出 Prompt)
+    # 🌟 支線：A' 客製化 Prompt 複製器 (支援 NotebookLM / Gemini 版本切換 + 回貼 JSON 排版)
     # ==============================================================================
     if "功能 A'" in sub_function_mode:
         col_q1, col_q2, col_q3 = st.columns(3)
@@ -246,20 +246,30 @@ if "模組 A" in main_mode:
         with col_q3: start_q_num = st.number_input("🔢 設定「起始題號」", min_value=1, max_value=999, value=1, step=1, key="mode_a_prime_qnum")
 
         st.markdown("---")
-        st.subheader("🌐 選擇出題語系樣式與防重複設定")
-        lang_style = st.radio(
-            "請指定 AI 出題時的題目與選項語言：",
-            ["1. 中文出題（專有名詞採『英文 (中文)』雙語標記，貼近國考格式）", "2. 全英文出題（題目與選項皆為 Full English，貼近臨床跑台）"],
-            index=0,
-            horizontal=True,
-            key="ap_lang_style"
-        )
+        st.subheader("🌐 選擇出題語系樣式與目標 AI 平台")
+        
+        col_opt1, col_opt2 = st.columns(2)
+        with col_opt1:
+            lang_style = st.radio(
+                "請指定 AI 出題時的題目與選項語言：",
+                ["1. 中文出題（專有名詞採『英文 (中文)』雙語標記，貼近國考格式）", "2. 全英文出題（題目與選項皆為 Full English，貼近臨床跑台）"],
+                index=0,
+                key="ap_lang_style"
+            )
+        with col_opt2:
+            # 🌟 [全新選擇欄位]：可切換 NotebookLM 或 Gemini/ChatGPT 版本，預設為 NotebookLM
+            ai_target = st.radio(
+                "🤖 請選擇預計使用的目標 AI 平台：",
+                ["1. NotebookLM (預設：出處僅需標註 PDF 檔名)", "2. Gemini / ChatGPT (出處需標註 PDF 檔名與頁數)"],
+                index=0,
+                key="ap_ai_target"
+            )
 
         a_prime_dedup = st.checkbox(
-            "🚫 要求 NotebookLM 不要與來源中的歷史題目/考點重複 (預設為不要重複)",
+            "🚫 要求 AI 不要與來源中的歷史題目/考點重複 (預設為不要重複)",
             value=True,
             key="a_prime_dedup_check",
-            help="預設勾選。此選項會生成針對 NotebookLM 的高強度 Prompt，要求其比對您手動上傳至 NotebookLM 來源 (Sources) 中的歷屆考題 Word 檔，避免重複出題。"
+            help="預設勾選。此選項會要求 AI 比對您提供的歷屆考題 Word 檔/歷史資料，避免重複出題。"
         )
 
         st.markdown("---")
@@ -270,19 +280,43 @@ if "模組 A" in main_mode:
         else:
             lang_prompt_str = "每個物件中的「題目內容」與「選項A」~「選項E」必須完全使用純英文 (Full English) 撰寫，符合美國醫學執照考試 (USMLE) 專業醫學出題邏輯。"
 
-        # 🌟 [NotebookLM 特化歷史考點去重與精準頁碼指令]
-        if a_prime_dedup:
-            history_prompt_str = """
+        # 🌟 [依據目標 AI 動態分支出處與去重指令]
+        if "1. NotebookLM" in ai_target:
+            source_context_header = "請根據我為你提供與勾選的 NotebookLM 來源資料（包含課程講義簡報 PDF 與相關教材）"
+            source_prompt_str = """
+【📌 出處標註鐵律 - 僅需標註 PDF 檔名】：
+- 【出處】請精準標註所引用之課程講義簡報 PDF 檔案的完整檔名。
+- 由於 NotebookLM 內部之檢索特性，【出處】『只需標明來源 PDF 檔名』即可（例如：=== 出處：【檔名.pdf】 ===），絕對『不需要』標註或推測頁碼，避免產生頁碼錯誤！
+"""
+            if a_prime_dedup:
+                history_prompt_str = """
 【🚨 歷史考點與舊題去重指令 (NotebookLM 來源比對)】：
 - 我已將過去出過的歷史題目檔案（Word 檔）以及本次的課程簡報講義一併上傳並勾選為本 NotebookLM 的來源 (Sources)。
 - 請你先深入分析來源檔案中『歷史舊題/歷屆考題 Word 檔』裡所測驗過的核心醫學考點、生理機制、藥理靶點與診斷指標。
 - 核心鐵律：本次生成的新題目『絕對禁止』重複測驗這些已出過的舊題觀念與機轉！
 - 請精準檢索講義簡報來源中『尚未被歷史考題覆蓋』的全新核心知識點來進行命題。
 """
+            else:
+                history_prompt_str = ""
         else:
-            history_prompt_str = ""
+            source_context_header = "請根據我為你提供的課程講義簡報與相關教材"
+            source_prompt_str = """
+【📌 出處與頁碼精準度鐵律 - 必須標註檔名與頁數】：
+- 【出處】必須精準對照來源檔案，標註出處來源 PDF 檔案的名稱與實際頁碼。
+- 標註格式統一為：=== 【檔名.pdf】第 X 頁 ===
+- 頁碼必須嚴格依據 PDF 閱讀器開啟時的物理頁碼序列，絕對禁止輸出超過檔案真實總頁數的錯誤頁碼！
+"""
+            if a_prime_dedup:
+                history_prompt_str = """
+【🚨 歷史考點與舊題去重指令】：
+- 請分析我為你提供的歷史考題 Word 檔內容中已測驗過的核心醫學考點與生理機制。
+- 核心鐵律：本次生成的新題目『絕對禁止』重複測驗這些已出過的舊題觀念！
+- 請精準檢索講義中『尚未被歷史考題覆蓋』的全新核心知識點進行命題。
+"""
+            else:
+                history_prompt_str = ""
 
-        raw_prompt_for_user = f"""你現在是一位資深的醫學與生物科學教授。請根據我為你提供與勾選的 NotebookLM 來源資料（包含課程講義簡報 PDF 與相關教材），精準鎖定內容中的【{page_range}】，並圍繞核心主題設計出高質感的題庫。
+        raw_prompt_for_user = f"""你現在是一位資深的醫學與生物科學教授。{source_context_header}，精準鎖定內容中的【{page_range}】，並圍繞核心主題設計出高質感的題庫。
 
 【數量鐵律】：我要求你精準輸出「剛好」 {num_questions} 題五選一的單選題。絕對不能多出，也不能少出！
 
@@ -294,12 +328,7 @@ if "模組 A" in main_mode:
 - 詳解必須極盡詳細，對 A、B、C、D、E 五個選項進行「逐選項」完整且深入的醫學機制/概念辨析。
 - 針對敘述錯誤或不相關的選項：【嚴禁】只簡單回答「不正確」、「選項描述錯誤」或「非本題涵蓋內容」。你必須精準指出該選項敘述真正的錯誤點為何、正確的說法是什麼，或者說明「該選項的描述實際上是指哪一種疾病/生理機轉/藥物/解剖構造」。
 - 【正確答案】請固定輸出大寫字母（A, B, C, D 或 E）。
-
-【📌 出處與頁碼精準度鐵律 - 嚴禁虛構頁碼】：
-- 【出處】必須嚴格依據 PDF 檔案在閱讀器開啟時的『實際物理頁碼序列』（例如第 1 頁、第 2 頁... 第 N 頁，而非投影片上自印的編號或章節號）。
-- 即使簡報/PDF 頁面上沒有印出數字頁碼，也必須以 PDF 的『實際總頁數與物理頁序』為準計算。
-- 絕對、嚴禁輸出超過該 PDF 檔案實際總頁數的錯誤頁碼（例如：講義總共只有 30 頁，出處絕不能標為「第 35 頁」或「第 50 頁」）！
-- 標註格式統一為：=== 【檔名.pdf】第 X 頁 ===
+{source_prompt_str}
 - 正確答案（A, B, C, D, E）的總體數量分布要稍微平均一些。
 {history_prompt_str}
 
@@ -347,7 +376,7 @@ if "模組 A" in main_mode:
                     with col_ap3: topic_name_ap = st.text_input("課堂主題", "心血管系統", key="top_ap")
                     with col_ap4: remarks_ap = st.text_input("備註 (預設為題號範圍)", value=calculated_remarks_ap, key="rem_ap")
                     
-                    # 自訂整體檔名輸入框 (覆蓋上方欄位組合)
+                    # 🌟 自訂整體檔名輸入框 (覆蓋上方欄位組合)
                     custom_full_name_ap = st.text_input(
                         "✏️ 或直接輸入『自訂整體檔名』(若填寫將直接覆蓋上方欄位組合)：",
                         value="",
