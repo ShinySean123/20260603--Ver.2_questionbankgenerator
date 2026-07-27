@@ -342,7 +342,7 @@ if "模組 A" in main_mode:
             horizontal=True
         )
 
-        # 🌟 [全新亮點]：在語系區塊新增專為 NotebookLM 設計的防重複勾選框
+        # 🌟 在語系區塊新增專為 NotebookLM 設計的防重複勾選框
         a_prime_dedup = st.checkbox(
             "🚫 要求 NotebookLM 不要與來源中的歷史題目/考點重複 (預設為不要重複)",
             value=True,
@@ -377,12 +377,12 @@ if "模組 A" in main_mode:
             else:
                 lang_prompt_str = "每個物件中的「題目內容」與「選項A」~「選項E」必須完全使用純英文 (Full English) 撰寫，符合美國醫學執照考試 (USMLE) 專業醫學出題邏輯。"
 
-            # 🌟 [NotebookLM 特化歷史考點去重指令]
+            # 🌟 [NotebookLM 特化歷史考點去重指令 - 已修復檔案類型指定]
             if a_prime_dedup:
                 history_prompt_str = """
 【🚨 歷史考點與舊題去重指令 (NotebookLM 來源比對)】：
-- 我已將過去出過的歷史題目檔案（Word/PDF/Excel）以及本次的課程簡報講義一併上傳並勾選為本 NotebookLM 的來源 (Sources)。
-- 請你先深入分析來源檔案中『歷史舊題/歷屆考題』裡所測驗過的核心醫學考點、生理機制、藥理靶點與診斷指標。
+- 我已將過去出過的歷史題目檔案（Word）以及本次的課程簡報講義一併上傳並勾選為本 NotebookLM 的來源 (Sources)。
+- 請你先深入分析來源檔案中『歷史舊題/歷屆考題 Word 檔』裡所測驗過的核心醫學考點、生理機制、藥理靶點與診斷指標。
 - 核心鐵律：本次生成的新題目『絕對禁止』重複測驗這些已出過的舊題觀念與機轉！
 - 請精準檢索講義簡報來源中『尚未被歷史考題覆蓋』的全新核心知識點來進行命題。
 """
