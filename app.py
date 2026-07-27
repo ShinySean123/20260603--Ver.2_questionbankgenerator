@@ -15,7 +15,7 @@ from openpyxl import load_workbook
 from openpyxl.styles import Alignment, Font, Border, Side
 from openpyxl.utils import get_column_letter
 
-# Word 處理
+# Word 處理相關
 from docx import Document
 from docx.shared import Pt, Cm, RGBColor
 from docx.oxml.ns import qn
@@ -119,19 +119,16 @@ github_token = ""
 
 try:
     # [超高相容性 Secrets 讀取引擎]：不分大小寫、命名方式、嵌套結構，100% 穩定捕獲！
-    # 1. 檢查 Gemini API 密鑰的多重變體
     for k in ["GEMINI_API_KEY", "gemini_api_key", "Gemini_Api_Key", "GEMINI_KEY", "gemini_key", "api_key", "API_KEY"]:
         if k in st.secrets:
             env_key = st.secrets[k].strip()
             break
             
-    # 2. 檢查 GitHub Token 扁平變體
     for k in ["GITHUB_TOKEN", "github_token", "GitHub_Token", "git_token", "GIT_TOKEN", "GITHUB_PAT", "github_pat", "GitHub_Pat"]:
         if k in st.secrets:
             github_token = st.secrets[k].strip()
             break
     
-    # 3. 檢查巢狀 TOML 配置，如 [github]\n token = "..."
     if not github_token and "github" in st.secrets:
         gh_sec = st.secrets["github"]
         if isinstance(gh_sec, dict) or hasattr(gh_sec, "get"):
@@ -140,7 +137,6 @@ try:
                     github_token = gh_sec[k].strip()
                     break
                     
-    # 4. 檢查巢狀 TOML 的 Gemini 配置
     if not env_key and "gemini" in st.secrets:
         gem_sec = st.secrets["gemini"]
         if isinstance(gem_sec, dict) or hasattr(gem_sec, "get"):
@@ -158,17 +154,15 @@ with st.sidebar:
     
     st.markdown("---")
     st.header("☁️ GitHub 雲端備份狀態")
-    # 🌟 徹底移入後台：在側邊欄僅展示同步狀態，不提供輸入框，並提供彈性開關
     auto_github_save = False
     if github_token:
         st.success("🟢 雲端同步備份已啟動 (已偵測到後台 GITHUB_TOKEN)")
-        # 🌟 [全新功能]：預設為 True，但可手動取消勾選不儲存至 GitHub
         auto_github_save = st.checkbox("自動儲存至 GitHub 歷史庫", value=True, help="預設開啟。若取消勾選，題庫只會保留在本地下載，不會同步推送至 GitHub history_db。")
     else:
         st.info("ℹ️ 雲端同步備份未啟動 (未偵測到後台 GITHUB_TOKEN)")
         
     st.markdown("---")
-    st.caption("💡 提示：『功能 A'』與『模組 C』為本地純文字引擎與排版引擎，完全不需要輸入 Gemini Key 即可完美運作！若需自動同步備份，請至 Streamlit 後台 Settings ➡️ Secrets 中配置 `GITHUB_TOKEN`。")
+    st.caption("💡 提示：『功能 A'』與『模組 C』為本地純文字引擎與排版引擎，不需要輸入 Gemini Key 即可完美運作！若需自動同步備份，請至 Streamlit 後台 Settings ➡️ Secrets 中配置 `GITHUB_TOKEN`。")
 
 # 導覽器放置在金鑰檢查前，確保介面正常渲染
 main_mode = st.radio(
@@ -348,6 +342,14 @@ if "模組 A" in main_mode:
             horizontal=True
         )
 
+        # 🌟 [全新亮點]：在語系區塊新增專為 NotebookLM 設計的防重複勾選框
+        a_prime_dedup = st.checkbox(
+            "🚫 要求 NotebookLM 不要與來源中的歷史題目/考點重複 (預設為不要重複)",
+            value=True,
+            key="a_prime_dedup_check",
+            help="預設勾選。此選項會生成針對 NotebookLM 的高強度 Prompt，要求其去比對您手動上傳至 NotebookLM 來源中的歷屆考題檔，避免重複出題。"
+        )
+
         st.markdown("---")
 
         def extract_clean_text_from_pdf(pdf_bytes, pdf_name):
@@ -360,7 +362,7 @@ if "模組 A" in main_mode:
             return chunk_text
 
         # ==============================================================================
-        # 支線：A' 客製化 Prompt 複製器 (整合「回貼 JSON 文字」直接解析排版)
+        # 支線：A' 客製化 Prompt 複製器 (特化 NotebookLM 比對指令 + 回貼 JSON 排版)
         # ==============================================================================
         if "功能 A'" in sub_function_mode:
             st.success("💡 專屬客製化 PROMPT 封裝完成！請直接點擊右上角按鈕一鍵複製：")
@@ -375,11 +377,19 @@ if "模組 A" in main_mode:
             else:
                 lang_prompt_str = "每個物件中的「題目內容」與「選項A」~「選項E」必須完全使用純英文 (Full English) 撰寫，符合美國醫學執照考試 (USMLE) 專業醫學出題邏輯。"
 
-            history_prompt_str = ""
-            if history_titles:
-                history_prompt_str = "\n【🚨 歷史考點去重指令】：以下是歷史已出題目的名單，你設計的新題目絕對禁止再次重複測驗以下已考過的生理機制、藥理靶點或鑑別觀念，必須挑選講義中全新的核心知識點命題：\n" + "\n".join([f"- {t}" for t in history_titles[:40]])
+            # 🌟 [NotebookLM 特化歷史考點去重指令]
+            if a_prime_dedup:
+                history_prompt_str = """
+【🚨 歷史考點與舊題去重指令 (NotebookLM 來源比對)】：
+- 我已將過去出過的歷史題目檔案（Word/PDF/Excel）以及本次的課程簡報講義一併上傳並勾選為本 NotebookLM 的來源 (Sources)。
+- 請你先深入分析來源檔案中『歷史舊題/歷屆考題』裡所測驗過的核心醫學考點、生理機制、藥理靶點與診斷指標。
+- 核心鐵律：本次生成的新題目『絕對禁止』重複測驗這些已出過的舊題觀念與機轉！
+- 請精準檢索講義簡報來源中『尚未被歷史考題覆蓋』的全新核心知識點來進行命題。
+"""
+            else:
+                history_prompt_str = ""
 
-            raw_prompt_for_user = f"""你現在是一位資深的醫學與生物科學教授。請根據我為你提供的這份完整講義文字文本，精準鎖定這些講義文字內容中的【{page_range}】，並圍繞核心主題設計出高質感的題庫。
+            raw_prompt_for_user = f"""你現在是一位資深的醫學與生物科學教授。請根據我為你提供與勾選的 NotebookLM 來源資料（包含課程講義簡報與相關教材），精準鎖定內容中的【{page_range}】，並圍繞核心主題設計出高質感的題庫。
 
 【數量鐵律】：我要求你精準輸出「剛好」 {num_questions} 題五選一的單選題。絕對不能多出，也不能少出！
 
@@ -389,7 +399,7 @@ if "模組 A" in main_mode:
 【詳解與出處恆定要求】：
 - 不論前面題目是中文還是英文，【針對各選項之詳解】必須一律使用繁體中文進行極為詳細的專家級辨析（逐行解釋為什麼該選項正確或錯誤，換行請用 \\n 符號）。
 - 【正確答案】請固定輸出大寫字母（A, B, C, D 或 E）。
-- 【出處】請精準對照我文本中的頁碼標籤（例如：=== 【檔名】第 X 頁 ===），指出這題是出自哪一個檔案的第幾頁！
+- 【出處】請精準對照來源檔案與頁碼標籤（例如：=== 【檔名】第 X 頁 ===），指出這題是出自哪一個檔案的第幾頁！
 - 正確答案（A, B, C, D, E）的總體數量分布要稍微平均一些。
 {history_prompt_str}
 
@@ -403,15 +413,15 @@ if "模組 A" in main_mode:
 【輸出格式規範】：
 格式必須是標準的 JSON 格式列表(Array)，內含多個物件，每個物件的 Key 必須嚴格為："題目內容", "選項A", "選項B", "選項C", "選項D", "選項E", "正確答案", "針對各選項之詳解", "出處"
 
-以下是為你夾帶的講義完整純文字文本：
+以下是為你夾帶的講義完整純文字文本（請同時對照 NotebookLM 勾選的來源資料進行分析出題）：
 {combined_text_payload}
 """
             st.code(raw_prompt_for_user, language="text")
             
-            # 🌟 同版面 JSON 回貼排版解析器，讓組員不用跳去模組 C 也能一體化操作
+            # 🌟 同版面 JSON 回貼排版解析器
             st.markdown("---")
             st.subheader("📥 🚀 A' 快速回貼解析與雙軸排版引擎")
-            st.caption("複製上方 Prompt 至 ChatGPT 或 Claude 等外部 AI。將 AI 產出的 JSON 格式題庫文字，直接貼在下方，即可於此版面一鍵秒速生成 Word 試卷與 Excel 題庫！")
+            st.caption("複製上方 Prompt 至 NotebookLM 或外部 AI。將 AI 產出的 JSON 格式題庫文字，貼在下方，即可於此版面一鍵秒速生成 Word 試卷與 Excel 題庫！")
             
             text_input_a_prime = st.text_area("請在下方貼上 AI 吐出的 JSON 陣列內容：", height=250, placeholder='[\n  {\n    "題目內容": "...", \n    "選項A": "..."\n  }\n]', key="a_prime_json_input")
             
@@ -427,7 +437,6 @@ if "模組 A" in main_mode:
                     if isinstance(json_data_ap, list):
                         st.success(f"📝 成功辨識複製貼上的 JSON 文字！偵測到 **{len(json_data_ap)}** 道題目。")
                         
-                        # 在 A' 內建專屬的檔名與標題設定欄位
                         st.markdown("---")
                         st.subheader("🏷️ 設定大標題與檔名")
                         end_q_num_ap = start_q_num + len(json_data_ap) - 1
@@ -441,13 +450,21 @@ if "模組 A" in main_mode:
                         with col_ap3: topic_name_ap = st.text_input("課堂主題", "心血管系統", key="top_ap")
                         with col_ap4: remarks_ap = st.text_input("備註 (預設為題號範圍)", value=calculated_remarks_ap, key="rem_ap")
                         
-                        final_title_filename_ap = f"{subject_name_ap}_{teacher_name_ap}_{topic_name_ap}_{remarks_ap}"
+                        # 🌟 自訂整體檔名輸入框 (覆蓋上方欄位組合)
+                        custom_full_name_ap = st.text_input(
+                            "✏️ 或直接輸入『自訂整體檔名』(若填寫將直接覆蓋上方欄位組合)：",
+                            value="",
+                            placeholder="例如：111神經系統疾病_黃曼舒_Central nervous system(pathology)_01~25",
+                            key="full_ap"
+                        )
+                        
+                        auto_combined_ap = f"{subject_name_ap}_{teacher_name_ap}_{topic_name_ap}_{remarks_ap}"
+                        final_title_filename_ap = custom_full_name_ap.strip() if custom_full_name_ap.strip() else auto_combined_ap
                         st.info(f"📁 系統預覽輸出名稱將為：**{final_title_filename_ap}**")
                         
                         if st.button("📥 一鍵排版產出 Word 試卷與 Excel 題庫 📥", key="a_prime_convert_btn", use_container_width=True):
                             try:
                                 with st.spinner("🎨 正在啟動雙軸排版引擎，同時美化 Word 與 Excel 中..."):
-                                    # 1. 產生高質感 Word
                                     doc_ap = Document()
                                     sec_ap = doc_ap.sections[0]
                                     sec_ap.top_margin = sec_ap.bottom_margin = sec_ap.left_margin = sec_ap.right_margin = Cm(1.27)
@@ -467,7 +484,7 @@ if "模組 A" in main_mode:
                                     for idx, item in enumerate(json_data_ap):
                                         current_q_num = int(start_q_num) + idx
                                         
-                                        # 🌟 [功能 A' 換題自動分頁邏輯]：除第一題外，每一題開頭強插 page break
+                                        # 🌟 [換題自動分頁]：除第一題外，每一題開頭強插 page break
                                         if idx > 0:
                                             doc_ap.add_page_break()
                                             
@@ -485,7 +502,7 @@ if "模組 A" in main_mode:
                                         sep_p.paragraph_format.space_before = Pt(6)
                                         sep_p.paragraph_format.space_after = Pt(6)
                                         run_sep = sep_p.add_run("==================================================")
-                                        run_sep.font.color.rgb = RGBColor(180, 180, 180) # 淡灰色，不過於刺眼
+                                        run_sep.font.color.rgb = RGBColor(180, 180, 180)
                                                 
                                         ans_txt = str(item.get("正確答案", "")).upper().strip()
                                         if ans_txt:
@@ -535,7 +552,6 @@ if "模組 A" in main_mode:
                                         }
                                         processed_rows_ap.append(row_ap)
                                         
-                                    # 2. 產生高質感 Excel
                                     excel_out_ap = io.BytesIO()
                                     pd.DataFrame(processed_rows_ap).to_excel(excel_out_ap, index=False)
                                     excel_out_ap.seek(0)
@@ -568,7 +584,6 @@ if "模組 A" in main_mode:
                                     st.session_state["sol_excel_ap"] = final_excel_bytes_ap.getvalue()
                                     st.session_state["saved_exam_title_ap"] = final_title_filename_ap
                                     
-                                    # 🌟 [動態同步控制器]：只在勾選啟用時，才推送同步至 GitHub
                                     if github_token and auto_github_save:
                                         with st.spinner("☁️ 正在即時同步備份 Excel 至 GitHub 歷史庫..."):
                                             success, msg = upload_excel_to_github(final_excel_bytes_ap.getvalue(), f"{final_title_filename_ap}.xlsx", github_token)
@@ -579,7 +594,6 @@ if "模組 A" in main_mode:
                             except Exception as e:
                                 st.error(f"轉換排版過程發生錯誤：{e}")
                         
-                        # 平行外部下載按鈕
                         if "sol_word_ap" in st.session_state and "sol_excel_ap" in st.session_state:
                             st.success("🎉 Word 試卷與 Excel 題庫排版渲染已完美達成！請點擊下方按鈕下載：")
                             s_name_ap = sanitize_f(st.session_state["saved_exam_title_ap"])
@@ -604,7 +618,7 @@ if "模組 A" in main_mode:
                 except Exception as e: st.error(f"文字 JSON 格式解析失敗，請檢查括號是否完整。錯誤原因: {e}")
 
         # ==============================================================================
-        # 主功能支線：自動在網頁中呼叫 API 跑完 (此功能保留檔名與標題組裝)
+        # 主功能支線：自動在網頁中呼叫 API 跑完
         # ==============================================================================
         else:
             st.subheader("🏷️ 設定大標題與檔名")
@@ -619,7 +633,16 @@ if "模組 A" in main_mode:
             with col_t3: topic_name = st.text_input("課堂主題", "心血管系統", key="top_a")
             with col_t4: remarks = st.text_input("備註 (預設為題號範圍)", value=default_remarks, key="rem_a")
 
-            final_title_filename = f"{subject_name}_{teacher_name}_{topic_name}_{remarks}"
+            # 自訂整體檔名輸入框 (功能 A)
+            custom_full_name = st.text_input(
+                "✏️ 或直接輸入『自訂整體檔名』(若填寫將直接覆蓋上方欄位組合)：",
+                value="",
+                placeholder="例如：111神經系統疾病_黃曼舒_Central nervous system(pathology)_01~25",
+                key="full_a"
+            )
+
+            auto_combined_a = f"{subject_name}_{teacher_name}_{topic_name}_{remarks}"
+            final_title_filename = custom_full_name.strip() if custom_full_name.strip() else auto_combined_a
             st.info(f"📁 系統預覽輸出名稱將為：**{final_title_filename}**")
 
             if st.button("⚡ 開始全全自動雙模融合出題 ⚡", use_container_width=True):
@@ -631,7 +654,7 @@ if "模組 A" in main_mode:
                             c_bytes = fetch_cloud_pdf_bytes(cloud_pdf_name)
                             if c_bytes: combined_text_payload += extract_clean_text_from_pdf(c_bytes, cloud_pdf_name)
 
-                    with st.spinner("🧠 任務封裝完成！正透過智慧負載分流引擎發送至雲端核心..."):
+                    with st.spinner("🧠 任務封裝完成！正發送至雲端核心進行智慧出題..."):
                         range_instruction = f"精準鎖定這些講義文字內容中的【{page_range}】" if "整份" not in page_range and "全部" not in page_range else "「通盤掃描並融合這幾份講義文字」的完整內容，宏觀地在不同的章節與核心觀念中提取重點"
                         history_block = ""
                         if history_titles: 
@@ -728,7 +751,7 @@ if "模組 A" in main_mode:
                         title_p.runs[-1].font.size = Pt(16)
 
                         for idx, r in enumerate(processed_rows):
-                            # 🌟 [功能 A 換題自動分頁邏輯]：除第一題外，每一題開頭強插 page break
+                            # 🌟 [換題自動分頁]：除第一題外，每一題開頭強插 page break
                             if idx > 0:
                                 doc.add_page_break()
                                 
@@ -744,7 +767,7 @@ if "模組 A" in main_mode:
                             sep_p.paragraph_format.space_before = Pt(6)
                             sep_p.paragraph_format.space_after = Pt(6)
                             run_sep = sep_p.add_run("==================================================")
-                            run_sep.font.color.rgb = RGBColor(180, 180, 180) # 淡灰色，不過於刺眼
+                            run_sep.font.color.rgb = RGBColor(180, 180, 180)
 
                             ans_p = doc.add_paragraph()
                             ans_p.paragraph_format.space_before = Pt(6)
@@ -780,7 +803,6 @@ if "模組 A" in main_mode:
                         st.session_state["generated_word_a"] = final_word_bytes.getvalue()
                         st.session_state["saved_exam_title_a"] = final_title_filename
                         
-                        # 🌟 [動態同步控制器]：只在勾選啟用時，才推送同步至 GitHub
                         if github_token and auto_github_save:
                             with st.spinner("☁️ 正在即時同步備份 Excel 至 GitHub 歷史庫..."):
                                 success, msg = upload_excel_to_github(final_excel_bytes.getvalue(), f"{final_title_filename}.xlsx", github_token)
@@ -833,7 +855,16 @@ elif "模組 B" in main_mode:
             with col_t3_b: topic_name_b = st.text_input("課堂主題", "心血管系統", key="top_b")
             with col_t4_b: remarks_b = st.text_input("備註 (預設為題號範圍)", value=calculated_remarks_b, key="rem_b")
 
-            final_title_filename_b = f"{subject_name_b}_{teacher_name_b}_{topic_name_b}_{remarks_b}"
+            # 自訂整體檔名輸入框 (模組 B)
+            custom_full_name_b = st.text_input(
+                "✏️ 或直接輸入『自訂整體檔名』(若填寫將直接覆蓋上方欄位組合)：",
+                value="",
+                placeholder="例如：111神經系統疾病_黃曼舒_Central nervous system(pathology)_01~25",
+                key="full_b"
+            )
+
+            auto_combined_b = f"{subject_name_b}_{teacher_name_b}_{topic_name_b}_{remarks_b}"
+            final_title_filename_b = custom_full_name_b.strip() if custom_full_name_b.strip() else auto_combined_b
             st.info(f"📁 系統預覽輸出名稱將為：**{final_title_filename_b}**")
 
             cleaned_questions = []
@@ -850,7 +881,7 @@ elif "模組 B" in main_mode:
 
             if st.button("⚡ 開始全自動配對醫學詳解 ⚡", use_container_width=True):
                 try:
-                    with st.spinner("🧠 任務封裝完成！正在跨世代智慧調度配對詳解中..."):
+                    with st.spinner("🧠 任務封裝完成！正在發送至雲端核心配對詳解中..."):
                         input_data_json = json.dumps(cleaned_questions, ensure_ascii=False)
                         prompt = f"""你現在是一位資深的醫學與生物科學教授。請根據我提供給你的 JSON 題目列表，【原封不動】地保留題目內容與選項，並補上最精準的【正確答案】以及極為詳細的【針對各選項之詳解】。
                         
@@ -918,7 +949,7 @@ elif "模組 B" in main_mode:
                         title_p_b.runs[-1].font.size = Pt(16)
 
                         for idx, r in enumerate(processed_rows_b):
-                            # 🌟 [功能 B 換題自動分頁邏輯]：除第一題外，每一題開頭強插 page break
+                            # 🌟 [換題自動分頁]：除第一題外，每一題開頭強插 page break
                             if idx > 0:
                                 doc_b.add_page_break()
                                 
@@ -929,12 +960,12 @@ elif "模組 B" in main_mode:
                                     op = doc_b.add_paragraph(f"({lbl}) {txt}")
                                     op.paragraph_format.left_indent, op.paragraph_format.space_after = Pt(18), Pt(0)
                             
-                            # 🌟 [防瞄安全防線]：在選項與簡答之間加上分界線
+                            # [防瞄安全防線]：在選項與簡答之間加上分界線
                             sep_p = doc_b.add_paragraph()
                             sep_p.paragraph_format.space_before = Pt(6)
                             sep_p.paragraph_format.space_after = Pt(6)
                             run_sep = sep_p.add_run("==================================================")
-                            run_sep.font.color.rgb = RGBColor(180, 180, 180) # 淡灰色，不過於刺眼
+                            run_sep.font.color.rgb = RGBColor(180, 180, 180)
 
                             ans_p = doc_b.add_paragraph()
                             ans_p.paragraph_format.space_before = Pt(6)
@@ -963,7 +994,6 @@ elif "模組 B" in main_mode:
                         st.session_state["sol_word_b"] = final_word_bytes_b.getvalue()
                         st.session_state["saved_exam_title_b"] = final_title_filename_b
                         
-                        # 🌟 [動態同步控制器]：只在勾選啟用時，才推送同步至 GitHub
                         if github_token and auto_github_save:
                             with st.spinner("☁️ 正在即時同步備份 Excel 至 GitHub 歷史庫..."):
                                 success, msg = upload_excel_to_github(final_excel_bytes_b.getvalue(), f"{final_title_filename_b}.xlsx", github_token)
@@ -1055,13 +1085,21 @@ else:
         with col_t3_c: topic_name_c = st.text_input("課堂主題", "心血管系統", key="top_c")
         with col_t4_c: remarks_c = st.text_input("備註 (預設為題號範圍)", value=calculated_remarks_c, key="rem_c")
 
-        final_title_filename_c = f"{subject_name_c}_{teacher_name_c}_{topic_name_c}_{remarks_c}"
+        # 自訂整體檔名輸入框 (模組 C)
+        custom_full_name_c = st.text_input(
+            "✏️ 或直接輸入『自訂整體檔名』(若填寫將直接覆蓋上方欄位組合)：",
+            value="",
+            placeholder="例如：111神經系統疾病_黃曼舒_Central nervous system(pathology)_01~25",
+            key="full_c"
+        )
+
+        auto_combined_c = f"{subject_name_c}_{teacher_name_c}_{topic_name_c}_{remarks_c}"
+        final_title_filename_c = custom_full_name_c.strip() if custom_full_name_c.strip() else auto_combined_c
         st.info(f"📁 系統預覽輸出名稱將為：**{final_title_filename_c}**")
 
         if st.button("📥 一鍵排版產出 Word 試卷與 Excel 題庫 📥", use_container_width=True):
             try:
                 with st.spinner("🎨 正在啟動雙軸排版引擎，同時美化 Word 與 Excel 中..."):
-                    # 1. 產生高質感 Word
                     doc_c = Document()
                     sec_c = doc_c.sections[0]
                     sec_c.top_margin = sec_c.bottom_margin = sec_c.left_margin = sec_c.right_margin = Cm(1.27)
@@ -1082,11 +1120,10 @@ else:
                     for idx, item in enumerate(raw_items_list):
                         current_q_num = int(start_q_num_c) + idx
                         
-                        # 🌟 [功能 C 換題自動分頁邏輯]：除第一題外，每一題開頭強插 page break
+                        # 🌟 [換題自動分頁]：除第一題外，每一題開頭強插 page break
                         if idx > 0:
                             doc_c.add_page_break()
                         
-                        # --- 寫入 Word ---
                         q_txt = item.get("題目內容", item.get("題庫內容", ""))
                         doc_c.add_paragraph(f"{current_q_num}. {q_txt}").paragraph_format.space_after = Pt(6)
                         
@@ -1101,7 +1138,7 @@ else:
                         sep_p.paragraph_format.space_before = Pt(6)
                         sep_p.paragraph_format.space_after = Pt(6)
                         run_sep = sep_p.add_run("==================================================")
-                        run_sep.font.color.rgb = RGBColor(180, 180, 180) # 淡灰色，不過於刺眼
+                        run_sep.font.color.rgb = RGBColor(180, 180, 180)
 
                         ans_txt = str(item.get("正確答案", "")).upper().strip()
                         if ans_txt:
@@ -1137,7 +1174,6 @@ else:
                             
                         doc_c.add_paragraph("")
                         
-                        # --- 整理資料準備給 Excel ---
                         row_dict = {
                             '題號': current_q_num,
                             '題目內容': str(q_txt).strip(),
@@ -1152,7 +1188,6 @@ else:
                         }
                         processed_rows_c.append(row_dict)
 
-                    # 2. 產生高質感 Excel
                     excel_out_c = io.BytesIO()
                     pd.DataFrame(processed_rows_c).to_excel(excel_out_c, index=False)
                     excel_out_c.seek(0)
@@ -1181,12 +1216,10 @@ else:
                     final_excel_bytes_c = io.BytesIO()
                     wb_c.save(final_excel_bytes_c)
                     
-                    # 寫入狀態
                     st.session_state["sol_word_c"] = final_word_bytes_c.getvalue()
                     st.session_state["sol_excel_c"] = final_excel_bytes_c.getvalue()
                     st.session_state["saved_exam_title_c"] = final_title_filename_c
                     
-                    # 🌟 [動態同步控制器]：只在勾選啟用時，才推送同步至 GitHub
                     if github_token and auto_github_save:
                         with st.spinner("☁️ 正在即時同步備份 Excel 至 GitHub 歷史庫..."):
                             success, msg = upload_excel_to_github(final_excel_bytes_c.getvalue(), f"{final_title_filename_c}.xlsx", github_token)
@@ -1198,7 +1231,6 @@ else:
             except Exception as e:
                 st.error(f"轉換排版過程發生錯誤：{e}")
 
-        # 下載按鈕 (平級抽離，完全獨立於 try-except 外部，安全且完美對齊)
         if "sol_word_c" in st.session_state and "sol_excel_c" in st.session_state:
             st.success("🎉 Word 試卷與 Excel 題庫排版渲染已完美達成！請點擊下方按鈕下載：")
             s_name_c = sanitize_f(st.session_state["saved_exam_title_c"])
