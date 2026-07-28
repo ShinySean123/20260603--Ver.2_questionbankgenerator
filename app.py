@@ -10,6 +10,7 @@ import urllib.request
 import urllib.parse
 import requests  
 import base64
+import html
 import fitz  # PyMuPDF 高畫質影像渲染引擎
 from openpyxl import load_workbook
 from openpyxl.styles import Alignment, Font, Border, Side
@@ -37,6 +38,106 @@ def sanitize_f(name):
     """全域共用的檔名非法字元過濾器"""
     return re.sub(r'[\\/:*?"<>|]', '_', str(name))
 
+# 🌟 [PDF 原生渲染引擎]：使用 reportlab 純 Python 產出 1:1 對齊 Word 的中文 PDF 考卷
+def generate_pdf_from_rows(processed_rows, title_text):
+    try:
+        from reportlab.lib.pagesizes import A4
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
+        from reportlab.lib.styles import ParagraphStyle
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+        from reportlab.lib import colors
+
+        # 註冊 ReportLab 內建的繁體中文 CID 字型 (不需要額外下載字型檔即可直接在 Linux 雲端使用)
+        pdfmetrics.registerFont(UnicodeCIDFont('MSung-Light'))
+
+        pdf_buffer = io.BytesIO()
+        doc = SimpleDocTemplate(
+            pdf_buffer,
+            pagesize=A4,
+            rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36
+        )
+        
+        story = []
+        
+        # 樣式定義
+        title_style = ParagraphStyle(
+            'PdfTitle', fontName='MSung-Light', fontSize=16, leading=20,
+            alignment=1, spaceAfter=14
+        )
+        q_style = ParagraphStyle(
+            'PdfQuestion', fontName='MSung-Light', fontSize=11, leading=15, spaceAfter=4
+        )
+        opt_style = ParagraphStyle(
+            'PdfOpt', fontName='MSung-Light', fontSize=10, leading=14, leftIndent=18, spaceAfter=2
+        )
+        sep_style = ParagraphStyle(
+            'PdfSep', fontName='MSung-Light', fontSize=9, leading=11,
+            textColor=colors.HexColor('#B4B4B4'), spaceBefore=4, spaceAfter=4
+        )
+        ans_style = ParagraphStyle(
+            'PdfAns', fontName='MSung-Light', fontSize=10, leading=14, spaceBefore=4, spaceAfter=2
+        )
+        expl_header_style = ParagraphStyle(
+            'PdfExplHeader', fontName='MSung-Light', fontSize=10, leading=14,
+            textColor=colors.HexColor('#7030A0'), spaceBefore=2, spaceAfter=2
+        )
+        expl_line_style = ParagraphStyle(
+            'PdfExplLine', fontName='MSung-Light', fontSize=10, leading=14,
+            textColor=colors.HexColor('#7030A0'), leftIndent=18, spaceAfter=2
+        )
+        src_style = ParagraphStyle(
+            'PdfSrc', fontName='MSung-Light', fontSize=9, leading=13,
+            textColor=colors.HexColor('#003296'), spaceBefore=2, spaceAfter=6
+        )
+
+        def clean_xml(txt):
+            """轉義 HTML/XML 敏感字元，防止 ReportLab Paragraph 解析報錯"""
+            return html.escape(str(txt or ''))
+
+        # 標題
+        story.append(Paragraph(f"<b>{clean_xml(title_text)}</b>", title_style))
+        story.append(Spacer(1, 8))
+
+        opt_labels = ['A', 'B', 'C', 'D', 'E']
+
+        for idx, r in enumerate(processed_rows):
+            # [換題自動分頁]：除第一題外，每一題開頭強插 page break
+            if idx > 0:
+                story.append(PageBreak())
+            
+            q_num = r.get('題號', idx + 1)
+            q_content = r.get('題目內容', '')
+            story.append(Paragraph(f"<b>{clean_xml(q_num)}. {clean_xml(q_content)}</b>", q_style))
+
+            for lbl in opt_labels:
+                txt = r.get(f'選項{lbl}', '')
+                if txt:
+                    story.append(Paragraph(f"({lbl}) {clean_xml(txt)}", opt_style))
+
+            # 防瞄分界線
+            story.append(Paragraph("==================================================", sep_style))
+
+            ans = r.get('正確答案', '')
+            story.append(Paragraph(f"<b>Ans : </b>({clean_xml(ans)})", ans_style))
+
+            expl = str(r.get('針對各選項之詳解', ''))
+            if expl and expl.lower() != "nan":
+                story.append(Paragraph("<b>詳解 :</b>", expl_header_style))
+                for line in expl.split('\n'):
+                    if line.strip():
+                        story.append(Paragraph(clean_xml(line.strip()), expl_line_style))
+
+            src = str(r.get('出處', ''))
+            if src and src.lower() != "nan":
+                story.append(Paragraph(f"<b>出處 : </b>{clean_xml(src)}", src_style))
+
+        doc.build(story)
+        return pdf_buffer.getvalue()
+    except Exception as e:
+        st.warning(f"⚠️ PDF 產生過程提示：{e} (請確認環境中是否已安裝 reportlab)")
+        return None
+
 # 🌟 [全自動雲端儲存]：備份推送至 GitHub 歷史庫核心引擎
 def upload_excel_to_github(file_bytes, file_name, github_token):
     if not github_token:
@@ -54,7 +155,6 @@ def upload_excel_to_github(file_bytes, file_name, github_token):
         "User-Agent": "Streamlit-App"
     }
     
-    # 1. 嘗試獲取現有檔案的 SHA 雜湊 (以利覆蓋更新，避免 GitHub API 衝突)
     sha = None
     try:
         resp = requests.get(url, headers=headers, timeout=10)
@@ -63,7 +163,6 @@ def upload_excel_to_github(file_bytes, file_name, github_token):
     except Exception:
         pass
         
-    # 2. 進行 Base64 編碼
     b64_content = base64.b64encode(file_bytes).decode("utf-8")
     payload = {
         "message": f"🤖 AI 自動同步備份題庫: {sanitized_name}",
@@ -73,7 +172,6 @@ def upload_excel_to_github(file_bytes, file_name, github_token):
     if sha:
         payload["sha"] = sha
         
-    # 3. 發送 PUT 請求存入庫
     try:
         resp = requests.put(url, headers=headers, json=payload, timeout=15)
         if resp.status_code in [200, 201]:
@@ -111,14 +209,13 @@ if "last_api_call_time" not in st.session_state:
 st.set_page_config(page_title="AI 醫學共筆題庫工作站", page_icon="🧠", layout="centered")
 
 st.title("🧠 AI 醫學共筆題庫三模工作站")
-st.markdown("共筆組長專屬完全體：整合【講義智慧出題】、【純題配詳解】與【現成題庫轉 Word】三大核心功能！")
+st.markdown("共筆組長專屬完全體：整合【講義智慧出題】、【純題配詳解】與【現成題庫轉 Word/PDF】三大核心功能！")
 
 # ==================== 1. 🔑 共享 API 金鑰與 GitHub 後台備份設定 ====================
 env_key = ""
 github_token = ""
 
 try:
-    # [超高相容性 Secrets 讀取引擎]：不分大小寫、命名方式、嵌套結構，100% 穩定捕獲！
     for k in ["GEMINI_API_KEY", "gemini_api_key", "Gemini_Api_Key", "GEMINI_KEY", "gemini_key", "api_key", "API_KEY"]:
         if k in st.secrets:
             env_key = st.secrets[k].strip()
@@ -170,17 +267,13 @@ main_mode = st.radio(
     [
         "📚 模組 A：講義圖文智慧出題", 
         "📝 模組 B：現成題目自動配詳解", 
-        "📄 模組 C：既有題庫 Excel/JSON ➡️ 轉 Word/Excel"
+        "📄 模組 C：既有題庫 Excel/JSON ➡️ 轉 Word/Excel/PDF"
     ],
     index=0,
     horizontal=True
 )
 
 st.markdown("---")
-
-if not api_key and main_mode in ["📚 模組 A：講義圖文智慧出題", "📝 模組 B：現成題目自動配詳解"]:
-    st.warning("⚠️ 請先在左側邊欄填入您在 Google AI Studio 申請的 `AIzaSy` 金鑰以解鎖系統。")
-    st.stop()
 
 # ==================== 🌟 共享的終極單發 HTTP 直連函數 ====================
 def generate_content_via_http_with_retry(contents_list, api_key, max_retries=4):
@@ -242,7 +335,7 @@ if "模組 A" in main_mode:
     if "功能 A'" in sub_function_mode:
         col_q1, col_q2, col_q3 = st.columns(3)
         with col_q1: page_range = st.text_input("想根據哪幾頁出題？", "整份", key="ap_page_range")
-        with col_q2: num_questions = st.number_input("預計生成題數", min_value=1, max_value=100, value=10, key="ap_num_q")
+        with col_q2: num_questions = st.number_input("預計生成題數", min_value=1, max_value=100, value=25, key="ap_num_q")
         with col_q3: start_q_num = st.number_input("🔢 設定「起始題號」", min_value=1, max_value=999, value=1, step=1, key="mode_a_prime_qnum")
 
         st.markdown("---")
@@ -279,7 +372,6 @@ if "模組 A" in main_mode:
         else:
             lang_prompt_str = "每個物件中的「題目內容」與「選項A」~「選項E」必須完全使用純英文 (Full English) 撰寫，符合美國醫學執照考試 (USMLE) 專業醫學出題邏輯。"
 
-        # 🌟 [依據目標 AI 動態分支出處與去重指令 - 採用頁面印製頁碼]
         if "1. NotebookLM" in ai_target:
             source_context_header = "請根據我為你提供與勾選的 NotebookLM 來源資料（包含課程講義簡報 PDF 與相關教材）"
             source_prompt_str = """
@@ -350,8 +442,8 @@ if "模組 A" in main_mode:
         
         # 🌟 同版面 JSON 回貼排版解析器
         st.markdown("---")
-        st.subheader("📥 🚀 A' 快速回貼解析與雙軸排版引擎")
-        st.caption("複製上方 Prompt 至 NotebookLM 或外部 AI。將 AI 產出的 JSON 格式題庫文字，貼在下方，即可於此版面一鍵秒速生成 Word 試卷與 Excel 題庫！")
+        st.subheader("📥 🚀 A' 快速回貼解析與三軸排版引擎")
+        st.caption("複製上方 Prompt 至 NotebookLM 或外部 AI。將 AI 產出的 JSON 格式題庫文字，貼在下方，即可於此版面一鍵秒速生成 Word 試卷、Excel 題庫與 PDF 試卷！")
         
         text_input_a_prime = st.text_area("請在下方貼上 AI 吐出的 JSON 陣列內容：", height=250, placeholder='[\n  {\n    "題目內容": "...", \n    "選項A": "..."\n  }\n]', key="a_prime_json_input")
         
@@ -368,7 +460,6 @@ if "模組 A" in main_mode:
                     total_detected_ap = len(json_data_ap)
                     st.success(f"📝 成功辨識複製貼上的 JSON 文字！共偵測到 **{total_detected_ap}** 道題目。")
                     
-                    # 🌟 [多題數自動防爆與精確裁切邏輯]
                     if total_detected_ap > int(num_questions):
                         st.warning(f"⚠️ 偵測到 AI 吐出的題目數量 ({total_detected_ap} 題) 超過了您設定的預計題數 ({int(num_questions)} 題)。")
                         auto_trim = st.checkbox(f"✂️ 自動精確只保留前 {int(num_questions)} 題 (依設定裁切多餘題目)", value=True, key="ap_auto_trim_check")
@@ -389,7 +480,6 @@ if "模組 A" in main_mode:
                     with col_ap3: topic_name_ap = st.text_input("課堂主題", "心血管系統", key="top_ap")
                     with col_ap4: remarks_ap = st.text_input("備註 (預設為題號範圍)", value=calculated_remarks_ap, key="rem_ap")
                     
-                    # 自訂整體檔名輸入框 (覆蓋上方欄位組合)
                     custom_full_name_ap = st.text_input(
                         "✏️ 或直接輸入『自訂整體檔名』(若填寫將直接覆蓋上方欄位組合)：",
                         value="",
@@ -401,9 +491,9 @@ if "模組 A" in main_mode:
                     final_title_filename_ap = custom_full_name_ap.strip() if custom_full_name_ap.strip() else auto_combined_ap
                     st.info(f"📁 系統預覽輸出名稱將為：**{final_title_filename_ap}**")
                     
-                    if st.button("📥 一鍵排版產出 Word 試卷與 Excel 題庫 📥", key="a_prime_convert_btn", use_container_width=True):
+                    if st.button("📥 一鍵排版產出 Word 試卷、Excel 題庫與 PDF 試卷 📥", key="a_prime_convert_btn", use_container_width=True):
                         try:
-                            with st.spinner("🎨 正在啟動雙軸排版引擎，同時美化 Word 與 Excel 中..."):
+                            with st.spinner("🎨 正在啟動三軸排版引擎，同時美化 Word、Excel 與 PDF 中..."):
                                 doc_ap = Document()
                                 sec_ap = doc_ap.sections[0]
                                 sec_ap.top_margin = sec_ap.bottom_margin = sec_ap.left_margin = sec_ap.right_margin = Cm(1.27)
@@ -423,7 +513,6 @@ if "模組 A" in main_mode:
                                 for idx, item in enumerate(json_data_ap):
                                     current_q_num = int(start_q_num) + idx
                                     
-                                    # [換題自動分頁]：除第一題外，每一題開頭強插 page break
                                     if idx > 0:
                                         doc_ap.add_page_break()
                                         
@@ -436,7 +525,6 @@ if "模組 A" in main_mode:
                                             op = doc_ap.add_paragraph(f"({lbl}) {opt_txt}")
                                             op.paragraph_format.left_indent, op.paragraph_format.space_after = Pt(18), Pt(0)
                                     
-                                    # [防瞄安全防線]：在選項與簡答之間加上分界線
                                     sep_p = doc_ap.add_paragraph()
                                     sep_p.paragraph_format.space_before = Pt(6)
                                     sep_p.paragraph_format.space_after = Pt(6)
@@ -519,8 +607,12 @@ if "模組 A" in main_mode:
                                 final_excel_bytes_ap = io.BytesIO()
                                 wb_ap.save(final_excel_bytes_ap)
                                 
+                                # 🌟 [產出 PDF]
+                                final_pdf_bytes_ap = generate_pdf_from_rows(processed_rows_ap, final_title_filename_ap)
+                                
                                 st.session_state["sol_word_ap"] = final_word_bytes_ap.getvalue()
                                 st.session_state["sol_excel_ap"] = final_excel_bytes_ap.getvalue()
+                                st.session_state["sol_pdf_ap"] = final_pdf_bytes_ap
                                 st.session_state["saved_exam_title_ap"] = final_title_filename_ap
                                 
                                 if github_token and auto_github_save:
@@ -534,9 +626,9 @@ if "模組 A" in main_mode:
                             st.error(f"轉換排版過程發生錯誤：{e}")
                     
                     if "sol_word_ap" in st.session_state and "sol_excel_ap" in st.session_state:
-                        st.success("🎉 Word 試卷與 Excel 題庫排版渲染已完美達成！請點擊下方按鈕下載：")
+                        st.success("🎉 Word、Excel 與 PDF 試卷排版渲染已完美達成！請點擊下方按鈕下載：")
                         s_name_ap = sanitize_f(st.session_state["saved_exam_title_ap"])
-                        dl_col1_ap, dl_col2_ap = st.columns(2)
+                        dl_col1_ap, dl_col2_ap, dl_col3_ap = st.columns(3)
                         with dl_col1_ap:
                             st.download_button(
                                 label="📊 下載精修 Excel 題庫 (.xlsx)",
@@ -553,6 +645,15 @@ if "模組 A" in main_mode:
                                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                                 use_container_width=True
                             )
+                        with dl_col3_ap:
+                            if st.session_state.get("sol_pdf_ap"):
+                                st.download_button(
+                                    label="📕 下載精修排版 PDF 試卷 (.pdf)",
+                                    data=st.session_state["sol_pdf_ap"],
+                                    file_name=f"{s_name_ap}.pdf",
+                                    mime="application/pdf",
+                                    use_container_width=True
+                                )
                 else: st.error("❌ 貼上的內容格式不合規，外層必須是標準的方括號列表陣列 `[...]`。")
             except Exception as e: st.error(f"文字 JSON 格式解析失敗，請檢查括號是否完整。錯誤原因: {e}")
 
@@ -654,7 +755,7 @@ if "模組 A" in main_mode:
             
             col_q1, col_q2, col_q3 = st.columns(3)
             with col_q1: page_range = st.text_input("想根據哪幾頁出題？", "整份")
-            with col_q2: num_questions = st.number_input("預計生成題數", min_value=1, max_value=100, value=10)
+            with col_q2: num_questions = st.number_input("預計生成題數", min_value=1, max_value=100, value=25)
             with col_q3: start_q_num = st.number_input("🔢 設定「起始題號」", min_value=1, max_value=999, value=1, step=1, key="mode_a_qnum")
 
             st.markdown("---")
@@ -679,7 +780,6 @@ if "模組 A" in main_mode:
             with col_t3: topic_name = st.text_input("課堂主題", "心血管系統", key="top_a")
             with col_t4: remarks = st.text_input("備註 (預設為題號範圍)", value=default_remarks, key="rem_a")
 
-            # 自訂整體檔名輸入框 (功能 A)
             custom_full_name = st.text_input(
                 "✏️ 或直接輸入『自訂整體檔名』(若填寫將直接覆蓋上方欄位組合)：",
                 value="",
@@ -692,6 +792,9 @@ if "模組 A" in main_mode:
             st.info(f"📁 系統預覽輸出名稱將為：**{final_title_filename}**")
 
             if st.button("⚡ 開始全全自動雙模融合出題 ⚡", use_container_width=True):
+                if not api_key:
+                    st.error("⚠️ 請先在左側邊欄填入您在 Google AI Studio 申請的 Gemini API 金鑰以進行自動出題！")
+                    st.stop()
                 try:
                     combined_text_payload = ""
                     with st.spinner("🔍 正在啟動本地高效文字萃取引擎..."):
@@ -804,7 +907,6 @@ if "模組 A" in main_mode:
                         title_p.runs[-1].font.size = Pt(16)
 
                         for idx, r in enumerate(processed_rows):
-                            # [換題自動分頁]：除第一題外，每一題開頭強插 page break
                             if idx > 0:
                                 doc.add_page_break()
                                 
@@ -815,7 +917,6 @@ if "模組 A" in main_mode:
                                     op = doc.add_paragraph(f"({lbl}) {txt}")
                                     op.paragraph_format.left_indent, op.paragraph_format.space_after = Pt(18), Pt(0)
                             
-                            # [防瞄安全防線]：在選項與簡答之間加上分界線
                             sep_p = doc.add_paragraph()
                             sep_p.paragraph_format.space_before = Pt(6)
                             sep_p.paragraph_format.space_after = Pt(6)
@@ -852,8 +953,13 @@ if "模組 A" in main_mode:
 
                         final_word_bytes = io.BytesIO()
                         doc.save(final_word_bytes)
+                        
+                        # 🌟 [產出 PDF]
+                        final_pdf_bytes = generate_pdf_from_rows(processed_rows, final_title_filename)
+
                         st.session_state["generated_excel_a"] = final_excel_bytes.getvalue()
                         st.session_state["generated_word_a"] = final_word_bytes.getvalue()
+                        st.session_state["generated_pdf_a"] = final_pdf_bytes
                         st.session_state["saved_exam_title_a"] = final_title_filename
                         
                         if github_token and auto_github_save:
@@ -869,9 +975,12 @@ if "模組 A" in main_mode:
             if "generated_excel_a" in st.session_state and "generated_word_a" in st.session_state:
                 st.success("🎉 模式 A：講義題庫與試卷皆已設計完成！請下載：")
                 s_name = sanitize_f(st.session_state["saved_exam_title_a"])
-                dl_col1, dl_col2 = st.columns(2)
+                dl_col1, dl_col2, dl_col3 = st.columns(3)
                 with dl_col1: st.download_button("📊 下載精修 Excel 題庫 (.xlsx)", data=st.session_state["generated_excel_a"], file_name=f"{s_name}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
                 with dl_col2: st.download_button("📄 下載精修 Word 試卷 (.docx)", data=st.session_state["generated_word_a"], file_name=f"{s_name}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True)
+                with dl_col3:
+                    if st.session_state.get("generated_pdf_a"):
+                        st.download_button("📕 下載精修 PDF 試卷 (.pdf)", data=st.session_state["generated_pdf_a"], file_name=f"{s_name}.pdf", mime="application/pdf", use_container_width=True)
 
 # ==============================================================================
 # 🌟 模組 B：現成題目自動配詳解系統
@@ -908,7 +1017,6 @@ elif "模組 B" in main_mode:
             with col_t3_b: topic_name_b = st.text_input("課堂主題", "心血管系統", key="top_b")
             with col_t4_b: remarks_b = st.text_input("備註 (預設為題號範圍)", value=calculated_remarks_b, key="rem_b")
 
-            # 自訂整體檔名輸入框 (模組 B)
             custom_full_name_b = st.text_input(
                 "✏️ 或直接輸入『自訂整體檔名』(若填寫將直接覆蓋上方欄位組合)：",
                 value="",
@@ -933,6 +1041,9 @@ elif "模組 B" in main_mode:
                 })
 
             if st.button("⚡ 開始全自動配對醫學詳解 ⚡", use_container_width=True):
+                if not api_key:
+                    st.error("⚠️ 請先在左側邊欄填入您在 Google AI Studio 申請的 Gemini API 金鑰以進行詳解配對！")
+                    st.stop()
                 try:
                     with st.spinner("🧠 任務封裝完成！正在發送至雲端核心配對詳解中..."):
                         input_data_json = json.dumps(cleaned_questions, ensure_ascii=False)
@@ -1008,7 +1119,6 @@ elif "模組 B" in main_mode:
                         title_p_b.runs[-1].font.size = Pt(16)
 
                         for idx, r in enumerate(processed_rows_b):
-                            # [換題自動分頁]：除第一題外，每一題開頭強插 page break
                             if idx > 0:
                                 doc_b.add_page_break()
                                 
@@ -1019,7 +1129,6 @@ elif "模組 B" in main_mode:
                                     op = doc_b.add_paragraph(f"({lbl}) {txt}")
                                     op.paragraph_format.left_indent, op.paragraph_format.space_after = Pt(18), Pt(0)
                             
-                            # [防瞄安全防線]：在選項與簡答之間加上分界線
                             sep_p = doc_b.add_paragraph()
                             sep_p.paragraph_format.space_before = Pt(6)
                             sep_p.paragraph_format.space_after = Pt(6)
@@ -1049,8 +1158,13 @@ elif "模組 B" in main_mode:
 
                         final_word_bytes_b = io.BytesIO()
                         doc_b.save(final_word_bytes_b)
+                        
+                        # 🌟 [產出 PDF]
+                        final_pdf_bytes_b = generate_pdf_from_rows(processed_rows_b, final_title_filename_b)
+
                         st.session_state["sol_excel_b"] = final_excel_bytes_b.getvalue()
                         st.session_state["sol_word_b"] = final_word_bytes_b.getvalue()
+                        st.session_state["sol_pdf_b"] = final_pdf_bytes_b
                         st.session_state["saved_exam_title_b"] = final_title_filename_b
                         
                         if github_token and auto_github_save:
@@ -1066,16 +1180,19 @@ elif "模組 B" in main_mode:
             if "sol_excel_b" in st.session_state and "sol_word_b" in st.session_state:
                 st.success("🎉 模式 B 處理完畢！請下載：")
                 s_name_b = sanitize_f(st.session_state["saved_exam_title_b"])
-                dl_col1_b, dl_col2_b = st.columns(2)
+                dl_col1_b, dl_col2_b, dl_col3_b = st.columns(3)
                 with dl_col1_b: st.download_button("📊 下載附詳解題庫 (.xlsx)", data=st.session_state["sol_excel_b"], file_name=f"{s_name_b}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
                 with dl_col2_b: st.download_button("📄 下載附詳解試卷 (.docx)", data=st.session_state["sol_word_b"], file_name=f"{s_name_b}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True)
+                with dl_col3_b: 
+                    if st.session_state.get("sol_pdf_b"):
+                        st.download_button("📕 下載附詳解試卷 (.pdf)", data=st.session_state["sol_pdf_b"], file_name=f"{s_name_b}.pdf", mime="application/pdf", use_container_width=True)
         except Exception as e: st.error(f"讀取 Excel 檔案錯誤：{e}")
 
 # ==============================================================================
 # 🌟 模組 C：既有題庫已含詳解多管道輸入系統 (Excel / JSON 檔案)
 # ==============================================================================
 else:
-    st.subheader("📄 模式 C：既有題庫 ➡️ 高品質渲染 Word/Excel 考卷 (免金鑰)")
+    st.subheader("📄 模式 C：既有題庫 ➡️ 高品質渲染 Word/Excel/PDF 考卷 (免金鑰)")
     
     input_channel = st.radio(
         "📥 請選擇您的資料輸入來源：",
@@ -1144,7 +1261,6 @@ else:
         with col_t3_c: topic_name_c = st.text_input("課堂主題", "心血管系統", key="top_c")
         with col_t4_c: remarks_c = st.text_input("備註 (預設為題號範圍)", value=calculated_remarks_c, key="rem_c")
 
-        # 自訂整體檔名輸入框 (模組 C)
         custom_full_name_c = st.text_input(
             "✏️ 或直接輸入『自訂整體檔名』(若填寫將直接覆蓋上方欄位組合)：",
             value="",
@@ -1156,9 +1272,9 @@ else:
         final_title_filename_c = custom_full_name_c.strip() if custom_full_name_c.strip() else auto_combined_c
         st.info(f"📁 系統預覽輸出名稱將為：**{final_title_filename_c}**")
 
-        if st.button("📥 一鍵排版產出 Word 試卷與 Excel 題庫 📥", use_container_width=True):
+        if st.button("📥 一鍵排版產出 Word 試卷、Excel 題庫與 PDF 試卷 📥", use_container_width=True):
             try:
-                with st.spinner("🎨 正在啟動雙軸排版引擎，同時美化 Word 與 Excel 中..."):
+                with st.spinner("🎨 正在啟動三軸排版引擎，同時美化 Word、Excel 與 PDF 中..."):
                     doc_c = Document()
                     sec_c = doc_c.sections[0]
                     sec_c.top_margin = sec_c.bottom_margin = sec_c.left_margin = sec_c.right_margin = Cm(1.27)
@@ -1179,7 +1295,6 @@ else:
                     for idx, item in enumerate(raw_items_list):
                         current_q_num = int(start_q_num_c) + idx
                         
-                        # [換題自動分頁]：除第一題外，每一題開頭強插 page break
                         if idx > 0:
                             doc_c.add_page_break()
                         
@@ -1192,7 +1307,6 @@ else:
                                 op = doc_c.add_paragraph(f"({lbl}) {opt_txt}")
                                 op.paragraph_format.left_indent, op.paragraph_format.space_after = Pt(18), Pt(0)
                         
-                        # [防瞄安全防線]：在選項與簡答之間加上分界線
                         sep_p = doc_c.add_paragraph()
                         sep_p.paragraph_format.space_before = Pt(6)
                         sep_p.paragraph_format.space_after = Pt(6)
@@ -1275,8 +1389,12 @@ else:
                     final_excel_bytes_c = io.BytesIO()
                     wb_c.save(final_excel_bytes_c)
                     
+                    # 🌟 [產出 PDF]
+                    final_pdf_bytes_c = generate_pdf_from_rows(processed_rows_c, final_title_filename_c)
+                    
                     st.session_state["sol_word_c"] = final_word_bytes_c.getvalue()
                     st.session_state["sol_excel_c"] = final_excel_bytes_c.getvalue()
+                    st.session_state["sol_pdf_c"] = final_pdf_bytes_c
                     st.session_state["saved_exam_title_c"] = final_title_filename_c
                     
                     if github_token and auto_github_save:
@@ -1291,9 +1409,9 @@ else:
                 st.error(f"轉換排版過程發生錯誤：{e}")
 
         if "sol_word_c" in st.session_state and "sol_excel_c" in st.session_state:
-            st.success("🎉 Word 試卷與 Excel 題庫排版渲染已完美達成！請點擊下方按鈕下載：")
+            st.success("🎉 Word、Excel 與 PDF 試卷排版渲染已完美達成！請點擊下方按鈕下載：")
             s_name_c = sanitize_f(st.session_state["saved_exam_title_c"])
-            dl_col1_c, dl_col2_c = st.columns(2)
+            dl_col1_c, dl_col2_c, dl_col3_c = st.columns(3)
             with dl_col1_c:
                 st.download_button(
                     label="📊 下載精修 Excel 題庫 (.xlsx)",
@@ -1310,3 +1428,12 @@ else:
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                     use_container_width=True
                 )
+            with dl_col3_c:
+                if st.session_state.get("sol_pdf_c"):
+                    st.download_button(
+                        label="📕 下載精修排版 PDF 試卷 (.pdf)",
+                        data=st.session_state["sol_pdf_c"],
+                        file_name=f"{s_name_c}.pdf",
+                        mime="application/pdf",
+                        use_container_width=True
+                    )
