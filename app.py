@@ -257,10 +257,10 @@ if "模組 A" in main_mode:
                 key="ap_lang_style"
             )
         with col_opt2:
-            # 🌟 [全新選擇欄位]：可切換 NotebookLM 或 Gemini/ChatGPT 版本，預設為 NotebookLM
+            # 🌟 [切換選項更新]：NotebookLM 也需標註 PDF 檔名與頁數
             ai_target = st.radio(
                 "🤖 請選擇預計使用的目標 AI 平台：",
-                ["1. NotebookLM (預設：出處僅需標註 PDF 檔名)", "2. Gemini / ChatGPT (出處需標註 PDF 檔名與頁數)"],
+                ["1. NotebookLM (預設：出處需標註 PDF 檔名與頁數)", "2. Gemini / ChatGPT (出處需標註 PDF 檔名與頁數)"],
                 index=0,
                 key="ap_ai_target"
             )
@@ -280,13 +280,14 @@ if "模組 A" in main_mode:
         else:
             lang_prompt_str = "每個物件中的「題目內容」與「選項A」~「選項E」必須完全使用純英文 (Full English) 撰寫，符合美國醫學執照考試 (USMLE) 專業醫學出題邏輯。"
 
-        # 🌟 [依據目標 AI 動態分支出處與去重指令]
+        # 🌟 [依據目標 AI 動態分支出處與去重指令 - NotebookLM 現要求標註檔名與頁數]
         if "1. NotebookLM" in ai_target:
             source_context_header = "請根據我為你提供與勾選的 NotebookLM 來源資料（包含課程講義簡報 PDF 與相關教材）"
             source_prompt_str = """
-【📌 出處標註鐵律 - 僅需標註 PDF 檔名】：
-- 【出處】請精準標註所引用之課程講義簡報 PDF 檔案的完整檔名。
-- 由於 NotebookLM 內部之檢索特性，【出處】『只需標明來源 PDF 檔名』即可（例如：=== 出處：【檔名.pdf】 ===），絕對『不需要』標註或推測頁碼，避免產生頁碼錯誤！
+【📌 出處與頁碼標註鐵律 - 必須標註 PDF 檔名與頁數】：
+- 【出處】請精準標註所引用之課程講義簡報 PDF 檔案的完整檔名與實際頁數。
+- 格式統一標註為：=== 【檔名.pdf】第 X 頁 ===
+- 請對照 NotebookLM 來源資料中該 PDF 檔案的實際物理頁碼（即閱讀器開啟時的頁碼序列，第 1 頁、第 2 頁... 第 N 頁），務必精準填寫頁數。
 """
             if a_prime_dedup:
                 history_prompt_str = """
@@ -376,7 +377,7 @@ if "模組 A" in main_mode:
                     with col_ap3: topic_name_ap = st.text_input("課堂主題", "心血管系統", key="top_ap")
                     with col_ap4: remarks_ap = st.text_input("備註 (預設為題號範圍)", value=calculated_remarks_ap, key="rem_ap")
                     
-                    # 🌟 自訂整體檔名輸入框 (覆蓋上方欄位組合)
+                    # 自訂整體檔名輸入框 (覆蓋上方欄位組合)
                     custom_full_name_ap = st.text_input(
                         "✏️ 或直接輸入『自訂整體檔名』(若填寫將直接覆蓋上方欄位組合)：",
                         value="",
