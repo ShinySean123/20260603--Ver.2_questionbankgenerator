@@ -320,7 +320,9 @@ if "模組 A" in main_mode:
 
         raw_prompt_for_user = f"""你現在是一位資深的醫學與生物科學教授。{source_context_header}，精準鎖定內容中的【{page_range}】，並圍繞核心主題設計出高質感的題庫。
 
-【數量鐵律】：我要求你精準輸出「剛好」 {num_questions} 題五選一的單選題。絕對不能多出，也不能少出！
+【🚨 數量絕對鐵律 - 寫滿 {num_questions} 題請立即停止】：
+- 我要求你精準輸出「剛好」 {num_questions} 題五選一的單選題。絕對不能多出，也不能少出！
+- 當你完成第 {num_questions} 題的 JSON 物件後，請【立即結束回答】並關閉 JSON 陣列（補上 `]` 符號），絕對禁止產生第 {num_questions + 1} 題或任何多餘題目！
 
 【語系要求】：
 {lang_prompt_str}
@@ -363,7 +365,16 @@ if "模組 A" in main_mode:
                 
                 json_data_ap = json.loads(clean_text_ap)
                 if isinstance(json_data_ap, list):
-                    st.success(f"📝 成功辨識複製貼上的 JSON 文字！偵測到 **{len(json_data_ap)}** 道題目。")
+                    total_detected_ap = len(json_data_ap)
+                    st.success(f"📝 成功辨識複製貼上的 JSON 文字！共偵測到 **{total_detected_ap}** 道題目。")
+                    
+                    # 🌟 [多題數自動防爆與精確裁切邏輯]
+                    if total_detected_ap > int(num_questions):
+                        st.warning(f"⚠️ 偵測到 AI 吐出的題目數量 ({total_detected_ap} 題) 超過了您設定的預計題數 ({int(num_questions)} 題)。")
+                        auto_trim = st.checkbox(f"✂️ 自動精確只保留前 {int(num_questions)} 題 (依設定裁切多餘題目)", value=True, key="ap_auto_trim_check")
+                        if auto_trim:
+                            json_data_ap = json_data_ap[:int(num_questions)]
+                            st.info(f"✂️ 已為您切換為前 **{len(json_data_ap)}** 題進行排版與匯出。")
                     
                     st.markdown("---")
                     st.subheader("🏷️ 設定大標題與檔名")
