@@ -38,7 +38,7 @@ def sanitize_f(name):
     """全域共用的檔名非法字元過濾器"""
     return re.sub(r'[\\/:*?"<>|]', '_', str(name))
 
-# 🌟 [PDF 原生渲染引擎]：使用 reportlab 純 Python 產出 1:1 對齊 Word 的中文 PDF 考卷
+# 🌟 [PDF 原生渲染引擎]：升級版！使用 reportlab 1:1 精準復刻 Word 精緻美化排版
 def generate_pdf_from_rows(processed_rows, title_text):
     try:
         from reportlab.lib.pagesizes import A4
@@ -48,10 +48,11 @@ def generate_pdf_from_rows(processed_rows, title_text):
         from reportlab.pdfbase.cidfonts import UnicodeCIDFont
         from reportlab.lib import colors
 
-        # 註冊 ReportLab 內建的繁體中文 CID 字型 (不需要額外下載字型檔即可直接在 Linux 雲端使用)
+        # 註冊 ReportLab 內建的繁體中文 CID 字型
         pdfmetrics.registerFont(UnicodeCIDFont('MSung-Light'))
 
         pdf_buffer = io.BytesIO()
+        # 頁面邊界設定為 36pt (~1.27cm)，與 Word 邊界一致
         doc = SimpleDocTemplate(
             pdf_buffer,
             pagesize=A4,
@@ -60,35 +61,35 @@ def generate_pdf_from_rows(processed_rows, title_text):
         
         story = []
         
-        # 樣式定義
+        # 1:1 復刻 Word 樣式定義
         title_style = ParagraphStyle(
-            'PdfTitle', fontName='MSung-Light', fontSize=16, leading=20,
+            'PdfTitle', fontName='MSung-Light', fontSize=16, leading=22,
             alignment=1, spaceAfter=14
         )
         q_style = ParagraphStyle(
-            'PdfQuestion', fontName='MSung-Light', fontSize=11, leading=15, spaceAfter=4
+            'PdfQuestion', fontName='MSung-Light', fontSize=12, leading=16, spaceAfter=6
         )
         opt_style = ParagraphStyle(
-            'PdfOpt', fontName='MSung-Light', fontSize=10, leading=14, leftIndent=18, spaceAfter=2
+            'PdfOpt', fontName='MSung-Light', fontSize=11, leading=15, leftIndent=18, spaceAfter=2
         )
         sep_style = ParagraphStyle(
-            'PdfSep', fontName='MSung-Light', fontSize=9, leading=11,
-            textColor=colors.HexColor('#B4B4B4'), spaceBefore=4, spaceAfter=4
+            'PdfSep', fontName='MSung-Light', fontSize=9, leading=12,
+            textColor=colors.HexColor('#B4B4B4'), spaceBefore=6, spaceAfter=6
         )
         ans_style = ParagraphStyle(
-            'PdfAns', fontName='MSung-Light', fontSize=10, leading=14, spaceBefore=4, spaceAfter=2
+            'PdfAns', fontName='MSung-Light', fontSize=11, leading=15, spaceBefore=6, spaceAfter=2
         )
         expl_header_style = ParagraphStyle(
-            'PdfExplHeader', fontName='MSung-Light', fontSize=10, leading=14,
-            textColor=colors.HexColor('#7030A0'), spaceBefore=2, spaceAfter=2
+            'PdfExplHeader', fontName='MSung-Light', fontSize=11, leading=15,
+            textColor=colors.HexColor('#7030A0'), spaceBefore=4, spaceAfter=2
         )
         expl_line_style = ParagraphStyle(
-            'PdfExplLine', fontName='MSung-Light', fontSize=10, leading=14,
-            textColor=colors.HexColor('#7030A0'), leftIndent=18, spaceAfter=2
+            'PdfExplLine', fontName='MSung-Light', fontSize=10.5, leading=15,
+            textColor=colors.HexColor('#7030A0'), leftIndent=18, spaceAfter=3
         )
         src_style = ParagraphStyle(
-            'PdfSrc', fontName='MSung-Light', fontSize=9, leading=13,
-            textColor=colors.HexColor('#003296'), spaceBefore=2, spaceAfter=6
+            'PdfSrc', fontName='MSung-Light', fontSize=10, leading=14,
+            textColor=colors.HexColor('#003296'), spaceBefore=4, spaceAfter=6
         )
 
         def clean_xml(txt):
@@ -97,7 +98,7 @@ def generate_pdf_from_rows(processed_rows, title_text):
 
         # 標題
         story.append(Paragraph(f"<b>{clean_xml(title_text)}</b>", title_style))
-        story.append(Spacer(1, 8))
+        story.append(Spacer(1, 4))
 
         opt_labels = ['A', 'B', 'C', 'D', 'E']
 
@@ -115,7 +116,7 @@ def generate_pdf_from_rows(processed_rows, title_text):
                 if txt:
                     story.append(Paragraph(f"({lbl}) {clean_xml(txt)}", opt_style))
 
-            # 防瞄分界線
+            # 防瞄淡灰色分界線
             story.append(Paragraph("==================================================", sep_style))
 
             ans = r.get('正確答案', '')
@@ -123,14 +124,23 @@ def generate_pdf_from_rows(processed_rows, title_text):
 
             expl = str(r.get('針對各選項之詳解', ''))
             if expl and expl.lower() != "nan":
-                story.append(Paragraph("<b>詳解 :</b>", expl_header_style))
+                story.append(Paragraph("<b><font color='#7030A0'>詳解 :</font></b>", expl_header_style))
                 for line in expl.split('\n'):
-                    if line.strip():
-                        story.append(Paragraph(clean_xml(line.strip()), expl_line_style))
+                    sline = line.strip()
+                    if not sline: continue
+                    # 解析選項前綴 (例如 A. / A: / (A)) 並高亮加粗
+                    m = re.match(r'^([A-F])\s*([\(（].*?[\)隱]|[:：])', sline)
+                    if m:
+                        prefix = clean_xml(m.group(0))
+                        rest = clean_xml(sline[len(m.group(0)):])
+                        line_html = f"<b>{prefix}</b>{rest}"
+                    else:
+                        line_html = clean_xml(sline)
+                    story.append(Paragraph(f"<font color='#7030A0'>{line_html}</font>", expl_line_style))
 
             src = str(r.get('出處', ''))
             if src and src.lower() != "nan":
-                story.append(Paragraph(f"<b>出處 : </b>{clean_xml(src)}", src_style))
+                story.append(Paragraph(f"<b><font color='#003296'>出處 : </font></b><font color='#003296'>{clean_xml(src)}</font>", src_style))
 
         doc.build(story)
         return pdf_buffer.getvalue()
@@ -216,6 +226,7 @@ env_key = ""
 github_token = ""
 
 try:
+    # [超高相容性 Secrets 讀取引擎]：不分大小寫、命名方式、嵌套結構，100% 穩定捕獲！
     for k in ["GEMINI_API_KEY", "gemini_api_key", "Gemini_Api_Key", "GEMINI_KEY", "gemini_key", "api_key", "API_KEY"]:
         if k in st.secrets:
             env_key = st.secrets[k].strip()
@@ -410,11 +421,13 @@ if "模組 A" in main_mode:
             else:
                 history_prompt_str = ""
 
+        # 🌟 [Prompt 強效約束：防止 NotebookLM 題數不足或多給]
         raw_prompt_for_user = f"""你現在是一位資深的醫學與生物科學教授。{source_context_header}，精準鎖定內容中的【{page_range}】，並圍繞核心主題設計出高質感的題庫。
 
-【🚨 數量絕對鐵律 - 寫滿 {num_questions} 題請立即停止】：
-- 我要求你精準輸出「剛好」 {num_questions} 題五選一的單選題。絕對不能多出，也不能少出！
-- 當你完成第 {num_questions} 題的 JSON 物件後，請【立即結束回答】並關閉 JSON 陣列（補上 `]` 符號），絕對禁止產生第 {num_questions + 1} 題或任何多餘題目！
+【🚨 題數數量絕對鐵律 - 必須產出『剛好 {num_questions} 題』】：
+- 我要求你精準輸出「剛好」 {num_questions} 題五選一的單選題。絕對不能多出，也『絕對不能少於 {num_questions} 題』（例如只給 24 題是嚴格禁止且不合格的）！
+- 請你逐一排查數數，從第 1 題到第 {num_questions} 題，必須包含剛好 {num_questions} 個 JSON 物件！
+- 當你完成第 {num_questions} 題的 JSON 物件後，請【立即結束回答】並關閉 JSON 陣列（補上 `]` 符號），絕對禁止產生第 {num_questions + 1} 題或任何多餘文字！
 
 【語系要求】：
 {lang_prompt_str}
@@ -434,6 +447,8 @@ if "模組 A" in main_mode:
 3. 絕對不要輸出任何多餘的解釋、前言、後記或提示性文字。你的回答必須是 100% 可被機器直接解析的純 JSON 陣列。
 4. 嚴格注意物件內最後一個 Key-Value 欄位與最後一個物件的末尾，【絕對不能】有多餘的逗號 (Trailing Comma)。
 5. 詳解內容中若需要換行，請務必使用標準字元安全轉義序列「\\\\n」呈現，確保 JSON 的連續性。
+
+【Self-Check 檢查機制】：在送出回答前，請務必核對 JSON 陣列內總共有幾個物件，確保數量『精準等於 {num_questions} 題』！
 
 【輸出格式規範】：
 格式必須是標準的 JSON 格式列表(Array)，內含多個物件，每個物件的 Key 必須嚴格為："題目內容", "選項A", "選項B", "選項C", "選項D", "選項E", "正確答案", "針對各選項之詳解", "出處"
